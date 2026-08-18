@@ -7,10 +7,10 @@ export GRASPGENX_GRIPPER_CFG_DIR=/home/robot/hewu/model_zoo/gripper_descriptions
 
 hf download \
     --repo-type model \
-    --repo-id adithyamurali/GraspGenXModel \
+    adithyamurali/GraspGenXModel \
     --local-dir $GRASPGENX_CHECKPOINT_DIR
 
 hf download \
     --repo-type dataset \
-    --repo-id adithyamurali/gripper_descriptions \
+    adithyamurali/gripper_descriptions \
     --local-dir $GRASPGENX_GRIPPER_CFG_DIR
