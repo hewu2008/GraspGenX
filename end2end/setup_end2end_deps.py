@@ -117,12 +117,19 @@ def _build_ur10e_arx() -> None:
         return
     print("[setup-e2e] building merged UR10e + arx_x5 URDF (example 3)")
     # Run in the project venv (which now has the editable cuRobo) via uv.
-    res = subprocess.run(
-        ["uv", "run", "--no-sync", "python",
-         str(REPO_ROOT / "end2end" / "build_ur10e_gripper.py"),
-         "--gripper", "arx_x5", "--mount_rpy", *_ARX_MOUNT_RPY],
-        cwd=str(REPO_ROOT),
-    )
+    if shutil.which("uv") is not None:
+        res = subprocess.run(
+            ["uv", "run", "--no-sync", "python",
+            str(REPO_ROOT / "end2end" / "build_ur10e_gripper.py"),
+            "--gripper", "arx_x5", "--mount_rpy", *_ARX_MOUNT_RPY],
+            cwd=str(REPO_ROOT),
+        )
+    else:
+        res = subprocess.run(
+            ["python", str(REPO_ROOT / "end2end" / "build_ur10e_gripper.py"),
+            "--gripper", "arx_x5", "--mount_rpy", *_ARX_MOUNT_RPY],
+            cwd=str(REPO_ROOT),
+        )
     if res.returncode == 0 and merged.is_file():
         print(f"[setup-e2e] UR10e+arx_x5 URDF ready ({merged})")
     else:
@@ -146,9 +153,14 @@ def main() -> None:
     # `uv run --no-sync ...` (or this script again) so the editable install
     # sticks.
     print("[setup-e2e] re-installing cuRobo editable from source (--no-deps)")
-    subprocess.run(
-        ["uv", "pip", "install", "-e", str(CUROBO_DIR), "--no-deps"], check=True
-    )
+    if shutil.which("uv") is not None:
+        subprocess.run(
+            ["uv", "pip", "install", "-e", str(CUROBO_DIR), "--no-deps"], check=True
+        )
+    else:
+        subprocess.run(
+            ["pip", "install", "-e", str(CUROBO_DIR), "--no-deps"], check=True
+        )
 
     # Build the merged UR10e + arx_x5 URDF that example 3 needs.
     _build_ur10e_arx()
