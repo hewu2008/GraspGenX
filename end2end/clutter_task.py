@@ -55,6 +55,7 @@ from tasks import (
     _slice_arm,
     _stack_arm_and_gripper,
 )
+from graspgenx import get_gripper_descriptions_assets
 
 log = logging.getLogger("clutter")
 
@@ -327,8 +328,7 @@ def run_clutter_task(
     gg_cfg = robot_cfg["graspgen"]
     gripper_name = gg_cfg["gripper_name"]
     assets_dir = gg_cfg.get("assets_dir") or str(
-        Path(__file__).resolve().parent.parent
-        / "ext/gripper_descriptions/gripper_descriptions/assets"
+        get_gripper_descriptions_assets().parent
     )
     vis_mesh_path = Path(assets_dir) / "x_grippers" / gripper_name / "vis_mesh.obj"
     if not vis_mesh_path.exists():
