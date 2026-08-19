@@ -4,3 +4,5 @@
 *.STL filter=lfs diff=lfs merge=lfs -text
 *.DAE filter=lfs diff=lfs merge=lfs -text
 *.npy filter=lfs diff=lfs merge=lfs -text
+detection/model/last_20260807_v0.pt filter=lfs diff=lfs merge=lfs -text
+detection/lib/camera_client.cpython-310-x86_64-linux-gnu.so filter=lfs diff=lfs merge=lfs -text
