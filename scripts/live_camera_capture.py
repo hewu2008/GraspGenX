@@ -73,7 +73,7 @@ def main():
             depth_data = client.get_latest_depth(args.camera_name)
 
             if rgb_data is None and depth_data is None:
-                print("[!] No RGB+D frame yet, continue.")
+                print(f"[!] No RGB+D frame yet, continue. (ts={rgb_data[1] if rgb_data is not None else 'N/A'}, depth {depth_data[1] if depth_data is not None else 'N/A'})")
                 continue
 
             if rgb_data is not None:
