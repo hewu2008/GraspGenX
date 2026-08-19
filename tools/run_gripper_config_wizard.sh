@@ -7,8 +7,8 @@ LEFT_URDF=${1:-./assets/zerith/urdf/left_gripper.urdf}
 RIGHT_URDF=${2:-./assets/zerith/urdf/right_gripper.urdf}
 PORT=${3:-8081}
 
-LEFT_NAME=$(basename "${LEFT_URDF%.*}")
-RIGHT_NAME=$(basename "${RIGHT_URDF%.*}")
+LEFT_NAME=zerith_left_gripper
+RIGHT_NAME=zerith_right_gripper
 
 python scripts/gripper_config_wizard.py \
     --urdf "$LEFT_URDF" \

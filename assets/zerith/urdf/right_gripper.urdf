@@ -111,7 +111,7 @@
     <child
       link="right_jaw_left_finger_link" />
     <axis
-      xyz="0 -1 0" />
+      xyz="0 1 0" />
     <limit
       lower="-0.04"
       upper="0"
