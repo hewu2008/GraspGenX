@@ -1,7 +1,7 @@
 #!/bin/bash
 
-DEPTH_PATH=${1:-assets/sample_data/real_world/02/depth.npy}
-RGB_PATH=${2:-assets/sample_data/real_world/02/rgb.png}
+DEPTH_PATH=${1:-assets/zerith/real_scene/00/depth.npy}
+RGB_PATH=${2:-assets/zerith/real_scene/00/rgb.png}
 MAX_DEPTH=${3:-}
 CMAP=${4:-turbo}
 
