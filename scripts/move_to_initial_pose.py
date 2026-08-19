@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 
+import numpy as np
 from scipy.spatial.transform import Rotation as R, Slerp
 
 # Local SDK bundles shipped under assets/zerith/sdk/
@@ -151,6 +152,42 @@ def arm_move_pre(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
     print(" -> Both arms reached their targets smoothly!")
 
 
+def print_camera_pose(robot):
+    """Read head-camera pose from the SDK and print it as a 4x4 matrix.
+
+    The returned matrix is the camera-to-robot-base transform (T_cam2base),
+    which is what ``camera_pose`` in ``meta_data.json`` expects when the
+    robot base is the world-frame origin.
+    """
+    ok_cam, cam_state = robot.getHeadCameraRelative()
+    if not ok_cam:
+        print("[camera_pose] Failed to read head camera pose from SDK.")
+        return None
+
+    cam_pos = getattr(cam_state, "position", None)
+    cam_quat = getattr(cam_state, "rotation", None)
+    if cam_pos is None or cam_quat is None:
+        print("[camera_pose] Camera state missing position/rotation.")
+        return None
+
+    T = np.eye(4)
+    T[:3, :3] = R.from_quat(cam_quat).as_matrix()
+    T[:3, 3] = cam_pos
+
+    print("\n[Camera Pose] head camera relative pose (T_cam2base):")
+    print(f"  position : {np.array2string(np.asarray(cam_pos), precision=6, separator=', ')}")
+    print(f"  quaternion: {np.array2string(np.asarray(cam_quat), precision=6, separator=', ')}  [qx, qy, qz, qw]")
+    print("  4x4 matrix:")
+    for row in T:
+        print("    [" + ", ".join(f"{v:12.6f}" for v in row) + "]")
+    print("  JSON (for meta_data.json \"camera_pose\"):")
+    json_rows = []
+    for row in T:
+        json_rows.append("      [" + ", ".join(f"{v}" for v in row) + "]")
+    print("    [\n" + ",\n".join(json_rows) + "\n    ]")
+    return T
+
+
 def main():
     args = parse_args()
     robot = H1Robot()
@@ -171,6 +208,7 @@ def main():
         )
 
         print("\n[Done] Reached initial observation pose.")
+        print_camera_pose(robot)
         if args.hold:
             print("[HOLD] Entering hold mode, press Ctrl+C to exit...")
             while True:
