@@ -24,4 +24,4 @@ else
     ARGS+=(--no-hold)
 fi
 
-sudo python scripts/move_to_initial_pose.py "${ARGS[@]}"
+sudo /home/robot/miniconda3/envs/zerith/bin/python scripts/move_to_initial_pose.py "${ARGS[@]}"
