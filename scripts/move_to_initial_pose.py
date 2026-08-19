@@ -29,14 +29,10 @@ import time
 
 from scipy.spatial.transform import Rotation as R, Slerp
 
-# ================= SDK imports & env setup =================
-root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if root not in sys.path:
-    sys.path.insert(0, root)
-
 # Local SDK bundles shipped under assets/zerith/sdk/
 #   lib/   -> lib_h1_sdk_python.so, camera_client.cpython-310-x86_64-linux-gnu.so
 #   proto/ -> robot_pb2.py, robot_pb2_grpc.py
+root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _sdk_dir = os.path.join(root, "assets", "zerith", "sdk")
 for _sub in ("lib", "proto"):
     _p = os.path.join(_sdk_dir, _sub)
