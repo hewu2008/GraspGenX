@@ -111,7 +111,7 @@
     <child
       link="right_jaw_left_finger_link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-0.04"
       upper="0"
@@ -282,4 +282,23 @@
     <axis
       xyz="0 0 0" />
   </joint>
+  <!-- Default joint state: both fingers fully open (q=0). -->
+  <joint_state
+    name="right_jaw_left_finger_joint">
+    <position
+      value="0.0" />
+    <velocity
+      value="0.0" />
+    <effort
+      value="0.0" />
+  </joint_state>
+  <joint_state
+    name="right_jaw_right_finger_joint">
+    <position
+      value="0.0" />
+    <velocity
+      value="0.0" />
+    <effort
+      value="0.0" />
+  </joint_state>
 </robot>
