@@ -24,4 +24,4 @@ else
     ARGS+=(--no-hold)
 fi
 
-python scripts/move_to_initial_pose.py "${ARGS[@]}"
+sudo python scripts/move_to_initial_pose.py "${ARGS[@]}"
