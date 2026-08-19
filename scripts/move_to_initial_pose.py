@@ -34,7 +34,16 @@ root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if root not in sys.path:
     sys.path.insert(0, root)
 
-from lib.lib_h1_sdk_python import (
+# Local SDK bundles shipped under assets/zerith/sdk/
+#   lib/   -> lib_h1_sdk_python.so, camera_client.cpython-310-x86_64-linux-gnu.so
+#   proto/ -> robot_pb2.py, robot_pb2_grpc.py
+_sdk_dir = os.path.join(root, "assets", "zerith", "sdk")
+for _sub in ("lib", "proto"):
+    _p = os.path.join(_sdk_dir, _sub)
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from lib_h1_sdk_python import (
     H1Robot,
     MotorControlMode,
     ArmAction,
