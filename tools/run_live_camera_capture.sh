@@ -1,8 +1,8 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DETECTION_DIR="$(dirname "$SCRIPT_DIR")"
-CAPTURE_DIR="${DETECTION_DIR}/captured_images"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+CAPTURE_DIR="${PROJECT_DIR}/assets/zerith/real_scene"
 
 if [ -d "$CAPTURE_DIR" ]; then
     file_count=$(find "$CAPTURE_DIR" -type f | wc -l)
@@ -19,5 +19,5 @@ if [ -d "$CAPTURE_DIR" ]; then
     esac
 fi
 
-cd "$DETECTION_DIR" || exit 1
-python live_camera_capture.py
+cd "$PROJECT_DIR" || exit 1
+python scripts/live_camera_capture.py

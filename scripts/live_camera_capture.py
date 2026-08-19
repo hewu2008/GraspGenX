@@ -2,60 +2,94 @@
 import os
 import sys
 import cv2
-import time
+import numpy as np
 from pathlib import Path
 from datetime import datetime
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'lib'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'proto'))
+# Local SDK bundles shipped under assets/zerith/sdk/
+#   lib/   -> camera_client.cpython-310-x86_64-linux-gnu.so, lib_h1_sdk_python.so
+#   proto/ -> robot_pb2.py, robot_pb2_grpc.py
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+_sdk_dir = os.path.join(_root, "assets", "zerith", "sdk")
+for _sub in ("lib", "proto"):
+    _p = os.path.join(_sdk_dir, _sub)
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from camera_client import CameraClient
 
 GRPC_TARGET = "localhost:50051"
 CAMERA_NAME = "rs/cam_high"
 SAVE_DIR = Path("captured_images")
-CAPTURE_INTERVAL = 1.0
-CAPTURE_FORMAT = ".jpg"
-CAPTURE_QUALITY = 95
+RGB_FORMAT = ".png"
+DEPTH_FORMAT = ".npy"  # float32 meters, matches graspgenx scene loader convention
+# Depth is delivered as uint16 millimeters. Colorize for display only.
+DEPTH_CMAP = cv2.COLORMAP_TURBO
+DEPTH_MAX_M = 3.0  # upper bound (meters) for colormap scaling
+
+
+def colorize_depth(depth_mm: np.ndarray) -> np.ndarray:
+    """uint16 mm depth -> 8-bit BGR colormap image (0 mm = invalid -> black)."""
+    valid = depth_mm > 0
+    depth_m = np.where(valid, depth_mm.astype(np.float32) / 1000.0, 0.0)
+    vmax_m = max(float(depth_m[valid].max()) if valid.any() else DEPTH_MAX_M, 1e-3)
+    vmax_m = min(vmax_m, DEPTH_MAX_M)
+    norm = np.clip(depth_m / vmax_m, 0.0, 1.0)
+    vis = (norm * 255.0).astype(np.uint8)
+    vis = cv2.applyColorMap(vis, DEPTH_CMAP)
+    vis[~valid] = 0  # mark invalid pixels black
+    return vis
 
 
 def main():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
-    client = CameraClient(grpc_target=GRPC_TARGET)
+    client = CameraClient(grpc_target=GRPC_TARGET, enable_depth=True)
     print(f"[*] Connecting to service {GRPC_TARGET} ...")
     client.start()
-    print(f"[+] Connected. Capturing frames from camera [{CAMERA_NAME}] ...")
+    print(f"[+] Connected. Streaming RGB+D from camera [{CAMERA_NAME}] ...")
     print(f"[*] Save directory: {SAVE_DIR.resolve()}")
-    print(f"[*] Capture interval: {CAPTURE_INTERVAL}s")
-    print("[*] Press 's' to save manually, 'q' to quit")
+    print("[*] Press 's' to save RGB+D, 'q' to quit")
 
-    last_capture_time = 0.0
     capture_count = 0
 
     try:
         while True:
-            data = client.get_latest_frame(CAMERA_NAME)
-            if data is None:
+            rgb_data = client.get_latest_frame(CAMERA_NAME)
+            depth_data = client.get_latest_depth(CAMERA_NAME)
+
+            if rgb_data is None and depth_data is None:
                 continue
 
-            img, ts = data
-            cv2.imshow("Live Camera", img)
+            if rgb_data is not None:
+                img, ts = rgb_data
+                cv2.imshow("RGB", img)
+
+            if depth_data is not None:
+                depth_mm, _ = depth_data
+                depth_vis = colorize_depth(depth_mm)
+                cv2.imshow("Depth", depth_vis)
 
             key = cv2.waitKey(1) & 0xFF
-            now = time.time()
-
-            should_auto_save = (now - last_capture_time >= CAPTURE_INTERVAL)
-            should_manual_save = (key == ord('s'))
-
-            if should_auto_save or should_manual_save:
-                last_capture_time = now
-                timestamp_str = datetime.fromtimestamp(ts).strftime("%Y%m%d_%H%M%S")
-                if should_manual_save:
-                    timestamp_str += "_manual"
-                file_path = SAVE_DIR / f"{timestamp_str}{CAPTURE_FORMAT}"
-                cv2.imwrite(str(file_path), img, [cv2.IMWRITE_JPEG_QUALITY, CAPTURE_QUALITY])
-                capture_count += 1
-                print(f"[+] Saved: {file_path.name} (total: {capture_count})")
+            if key == ord('s'):
+                if rgb_data is None:
+                    print("[!] No RGB frame yet, save skipped.")
+                else:
+                    img, ts = rgb_data
+                    timestamp_str = datetime.fromtimestamp(ts).strftime("%Y%m%d_%H%M%S")
+                    rgb_path = SAVE_DIR / f"{timestamp_str}_rgb{RGB_FORMAT}"
+                    cv2.imwrite(str(rgb_path), img, [cv2.IMWRITE_JPEG_QUALITY])
+                    if depth_data is not None:
+                        depth_path = SAVE_DIR / f"{timestamp_str}_depth{DEPTH_FORMAT}"
+                        depth_m = depth_data[0].astype(np.float32) / 1000.0  # mm -> m
+                        np.save(str(depth_path), depth_m)
+                        print(f"[+] Saved: {rgb_path.name}, {depth_path.name}")
+                    else:
+                        print(f"[+] Saved: {rgb_path.name} (no depth)")
+                    capture_count += 1
+                    print(f"    total: {capture_count}")
 
             if key == ord('q'):
                 print("\n[+] User requested exit.")
