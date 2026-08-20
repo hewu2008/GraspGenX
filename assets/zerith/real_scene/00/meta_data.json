@@ -44,8 +44,6 @@
   ],
   "label_map": {
     "ground": 0,
-    "table": 2,
-    "robot": 3,
     "obj_1": 101,
     "obj_2": 102,
     "obj_3": 103,

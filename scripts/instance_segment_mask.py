@@ -186,7 +186,9 @@ def main():
             )
             binary_mask = (mask_resized > 0.5).astype(np.uint8)
 
-            combined_mask[binary_mask == 1] = 255
+            # Per-instance label matches the label_map convention in
+            # meta_data.json (obj_1=101, obj_2=102, ...).
+            combined_mask[binary_mask == 1] = 101 + idx
 
             color = color_from_id(idx)
             color_mask[binary_mask == 1] = color
