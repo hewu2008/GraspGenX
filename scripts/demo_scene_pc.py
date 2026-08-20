@@ -131,6 +131,22 @@ def parse_args():
         "Disable with --no-filter_collisions.",
     )
     parser.add_argument(
+        "--top_down_only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep only grasps whose approach direction has a dominant downward "
+        "(world -Z) component. This filters out side/undergrasp poses produced "
+        "by the diffusion branch that are infeasible for top-down bin picking. "
+        "Disable with --no-top_down_only.",
+    )
+    parser.add_argument(
+        "--top_down_dot_threshold",
+        type=float,
+        default=0.85,
+        help="Minimum |R[2,2]| required when --top_down_only is set. 1.0 = strictly "
+        "vertical, 0.7 ~ 45 deg from vertical. Default 0.85 (~32 deg).",
+    )
+    parser.add_argument(
         "--collision_threshold",
         type=float,
         default=0.02,
@@ -367,6 +383,30 @@ def main():
                 if len(grasps) == 0:
                     print(f"  [{label}] all grasps colliding; nothing to viz")
                     continue
+
+            if args.top_down_only and len(grasps) > 0:
+                # A top-down grasp's approach direction (gripper local Z)
+                # must point mostly along world -Z. The approach axis is
+                # R[:, 2] (column 2 of the 3x3 rotation); its world-Z
+                # component is R[2, 2]. Requiring |R[2, 2]| >= threshold
+                # keeps grasps whose approach is no more than ~acos(thresh)
+                # away from vertical.
+                thresh = float(args.top_down_dot_threshold)
+                td_mask = np.abs(grasps[:, 2, 2]) >= thresh
+                n_before = len(grasps)
+                grasps = grasps[td_mask]
+                conf = conf[td_mask]
+                tags = [t for t, keep in zip(tags, td_mask) if keep]
+                dropped = n_before - len(grasps)
+                if dropped > 0:
+                    print(
+                        f"  [{label}] top-down filter ({thresh:.2f}): "
+                        f"{len(grasps)} kept / {dropped} dropped"
+                    )
+
+            if len(grasps) == 0:
+                print(f"  [{label}] no top-down grasps; nothing to viz")
+                continue
 
             print(
                 f"  [{label}] {len(grasps)} grasps "
