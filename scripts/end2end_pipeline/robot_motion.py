@@ -41,7 +41,7 @@ def prepare_robot_posture(robot, cur_waist_z, cur_waist_pitch, tar_waist_z, tar_
     time.sleep(1.5)
 
 
-def _move_arm(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
+def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
              duration=3.0, rate=RATE_HZ, dt=DT):
     """Smooth interpolation for a single arm."""
     steps = int(duration * rate)
@@ -66,14 +66,14 @@ def _move_arm(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
         time.sleep(dt)
 
 
-def arm_move_pre(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
+def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
     print("\n[E] Moving arm from relative zero to target smoothly...")
-    _move_arm(robot, TARGET_ARM, cur_xyz, cur_quat, dest_xyz, dest_quat, 2)
+    _move_arm_to_pose(robot, TARGET_ARM, cur_xyz, cur_quat, dest_xyz, dest_quat, 2)
     time.sleep(0.5)
     print(" -> Arm reached target.")
 
 
-def arm_move_rec(robot, dx, dy, dz):
+def move_arm_relative(robot, dx, dy, dz):
     """Relative retract move for the target arm."""
     duration_arm = 2.0
     steps_arm = int(duration_arm * RATE_HZ)
@@ -110,7 +110,7 @@ def arm_move_rec(robot, dx, dy, dz):
     print(" -> Reached target.")
 
 
-def arm_move_to_grasp(robot, target_pos, target_quat):
+def move_arm_to_grasp(robot, target_pos, target_quat):
     """Three-stage approach: pre-grasp waypoint, orient, final approach."""
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
@@ -121,7 +121,7 @@ def arm_move_to_grasp(robot, target_pos, target_quat):
                 arm_pos_rel[1] + target_pos[1] + 0.02,
                 arm_pos_rel[2] + target_pos[2]]
     temp_quat = [0.0, 0.0, 0.0, 1.0]
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, temp_quat, 2)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, temp_quat, 2)
     time.sleep(0.5)
 
     # Rotate to grasp orientation at the same position.
@@ -129,7 +129,7 @@ def arm_move_to_grasp(robot, target_pos, target_quat):
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     temp_xyz = [arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]]
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, target_quat, 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, target_quat, 1)
     time.sleep(0.5)
 
     # Final approach toward the object.
@@ -137,12 +137,12 @@ def arm_move_to_grasp(robot, target_pos, target_quat):
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     dest_xyz = [arm_pos_rel[0] + 0.05, arm_pos_rel[1], arm_pos_rel[2] - 0.01]
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, dest_xyz, arm_quat_rel, 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, dest_xyz, arm_quat_rel, 1)
     time.sleep(0.5)
     print(" -> Reached grasp pose.")
 
 
-def chassis_move(robot: "H1Robot", dist):
+def move_chassis(robot: "H1Robot", dist):
     dt = 0.2
     speed = 0.2
     distance = abs(dist)

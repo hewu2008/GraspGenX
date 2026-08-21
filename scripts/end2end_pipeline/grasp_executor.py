@@ -14,7 +14,7 @@ from .config import (
     WAIST_RELEASE_Z,
     GRIPPER_RELEASE_WAIT,
 )
-from .robot_motion import _move_arm, arm_move_rec, arm_move_to_grasp, move_waist_z
+from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
 
 
 # ================= 4. Grasp computation and execution =================
@@ -83,7 +83,7 @@ def grasp_object(robot, target_pos, target_quat):
     print(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
 
     print("\n[E] Moving arm to grasp target smoothly...")
-    arm_move_to_grasp(robot, target_pos, target_quat)
+    move_arm_to_grasp(robot, target_pos, target_quat)
 
     print("\n[F] Closing gripper to grasp...")
     close_cmd = Motor_Control()
@@ -92,18 +92,18 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(2.0)
 
     # Lift after grasp.
-    arm_move_rec(robot, -0.2, 0, 0.05)
+    move_arm_relative(robot, -0.2, 0, 0.05)
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.0, 0.30, 0.30], [0, 0, 0, 1], 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.0, 0.30, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)
 
     # Move to placement position.
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.17, 0.30, 0.30], [0, 0, 0, 1], 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.17, 0.30, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)
 
     # Drop: lower the waist before releasing.
@@ -123,11 +123,11 @@ def grasp_object(robot, target_pos, target_quat):
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.0, 0.30, 0.30], [0, 0, 0, 1], 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.0, 0.30, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)
 
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [-0.1, 0.0, 0.30], [0, 0, 0, 1], 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [-0.1, 0.0, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)

@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
 from .config import RETRY_COUNT
-from .robot_motion import chassis_move, prepare_robot_posture, arm_move_pre
+from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready_pose
 from .perception import capture_rgbd_data, run_perception_client
 from .grasp_executor import select_arm, grasp_object
 
@@ -19,15 +19,15 @@ def approach_workspace(robot, move_chassis=True):
     workspace; only the posture and arm ready pose are applied.
     """
     if move_chassis:
-        chassis_move(robot, 0.8)
+        move_chassis(robot, 0.8)
         time.sleep(1.0)
 
     prepare_robot_posture(robot, 0, 0, 0.67, 1.2)
-    arm_move_pre(robot, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0],
+    move_arm_to_ready_pose(robot, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0],
                 [-0.1, 0.0, 0.30], [0.0, 0.0, 0.0, 1.0])
 
     if move_chassis:
-        chassis_move(robot, 0.3)
+        move_chassis(robot, 0.3)
         time.sleep(2.0)
 
 
@@ -60,7 +60,8 @@ def run_grasp_attempts(robot):
         print(f"Grasp flow completed on attempt {attempt}.")
 
 
-def main(move_chassis=True):
+def main(args=None):
+    move_chassis = getattr(args, "move_chassis", True)
     robot = H1Robot()
     try:
         print("[INIT] Instantiating robot and connecting...")

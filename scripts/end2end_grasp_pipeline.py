@@ -44,4 +44,4 @@ if __name__ == "__main__":
     args = _parse_args()
     _setup_sys_path()
     from end2end_pipeline.pipeline import main
-    main(move_chassis=args.move_chassis)
+    main(args)
