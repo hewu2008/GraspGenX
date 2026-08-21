@@ -202,3 +202,160 @@ def write_meta_data(scene_dir, robot, num_objects):
         json.dump(meta, f, indent=2)
     logger.info(f"[Perc] meta_data.json written to {path}")
     return path
+
+
+# ---- Grasp pose generation (mirrors scripts/demo_scene_pc.py, zerith tuning) ----
+GRASP_GRIPPERS = ("zerith_left_gripper", "zerith_right_gripper")
+
+# Planner + filter parameters matching tools/run_demo_scene_pc_zerith.sh.
+GRASP_PLANNER = "graspmoe"
+GRASP_THRESHOLD = 0.7
+GRASP_NUM_GRASPS = 200
+GRASP_MOE_NUM_YAWS = 36
+GRASP_MOE_Z_OFFSETS_CM = (0.0, 2.0)
+GRASP_MOE_OUTLIER_THRESHOLD = 0.014
+GRASP_MOE_OUTLIER_K = 20
+GRASP_MOE_OBB_MODE = "advanced"
+GRASP_MOE_SKIP_OBB_RULE = "auto"
+GRASP_MOE_OBB_DENSITY = "dense"
+GRASP_MOE_OBB_POSITION_SPACING_CM = 1.0
+GRASP_MIN_OBJ_POINTS = 100
+GRASP_COLLISION_THRESHOLD = 0.002
+GRASP_TOP_DOWN_ONLY = True
+GRASP_TOP_DOWN_DOT_THRESHOLD = 0.85
+GRASP_MAX_SCENE_POINTS = 8192
+GRASP_NUM_COLLISION_SAMPLES = 2000
+GRASPS_SUBDIR = "grasps"
+
+
+def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir=None):
+    """Generate top-down grasp poses per object for each gripper and save them
+    under ``<scene_dir>/grasps/<gripper>/<label>.npz``.
+
+    Mirrors scripts/demo_scene_pc.py (zerith tuning from
+    tools/run_demo_scene_pc_zerith.sh): loads the realworld scene, runs the
+    GraspMoE planner per gripper (the diffusion model is gripper-independent
+    and shared across grippers), applies collision + top-down filtering, and
+    writes one .npz per (gripper, object) with keys ``grasps`` (K,4,4),
+    ``conf`` (K,), ``tags`` (K, str).
+
+    Requires the graspgenx stack: run in the zerith_graspgen env with
+    $GRASPGENX_CHECKPOINT_DIR and $GRASPGENX_GRIPPER_CFG_DIR set.
+
+    Returns ``{gripper_name: {label: num_grasps_saved}}``.
+    """
+    import trimesh
+    from graspgenx.grasp_server import GraspGenXSampler
+    from graspgenx.samplers.planner import run_planner_on_batch
+    from graspgenx.utils.checkpoint_io import load_model_cfg
+    from graspgenx.utils.collision_filter import filter_colliding_grasps
+    from graspgenx.utils.scene_loaders import (
+        build_scene_pc_excluding_object,
+        load_realworld_scene,
+    )
+    from graspgenx._setup_dependencies import get_checkpoints_version_dir
+
+    scene = load_realworld_scene(scene_dir, min_obj_points=GRASP_MIN_OBJ_POINTS)
+    labels = list(scene["objects"].keys())
+    if not labels:
+        logger.info("[Perc] No segmented objects; skipping grasp generation.")
+        return {}
+    obj_pcs = [scene["objects"][lab]["pc"] for lab in labels]
+    logger.info(f"[Perc] Generating grasps for {len(labels)} object(s): {labels}")
+
+    if assets_dir is None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        assets_dir = os.path.join(repo_root, "assets")
+
+    checkpoint_root = str(get_checkpoints_version_dir())
+    logger.info(f"[Perc] Checkpoints: {checkpoint_root}")
+    model_cfg = load_model_cfg(
+        os.path.join(checkpoint_root, "gen"),
+        os.path.join(checkpoint_root, "dis"),
+    )
+
+    z_offsets = tuple(float(x) for x in GRASP_MOE_Z_OFFSETS_CM)
+
+    summary = {}
+    model = None  # shared across grippers (model is gripper-independent)
+    for gi, gripper_name in enumerate(gripper_names):
+        logger.info(f"[Perc] Gripper {gi + 1}/{len(gripper_names)}: {gripper_name}")
+        sampler = GraspGenXSampler(
+            model_cfg, gripper_name, assets_dir=assets_dir, model=model
+        )
+        if model is None:
+            model = sampler.model
+        gripper = sampler.get_gripper_info()
+
+        sampled_pts, _ = trimesh.sample.sample_surface(
+            gripper.collision_mesh, GRASP_NUM_COLLISION_SAMPLES
+        )
+        gripper_surface_points = np.asarray(sampled_pts, dtype=np.float32)
+
+        batch_results = run_planner_on_batch(
+            obj_pcs,
+            sampler,
+            planner=GRASP_PLANNER,
+            grasp_threshold=GRASP_THRESHOLD,
+            num_grasps=GRASP_NUM_GRASPS,
+            moe_num_yaws=GRASP_MOE_NUM_YAWS,
+            moe_z_offsets_cm=z_offsets,
+            moe_outlier_threshold=GRASP_MOE_OUTLIER_THRESHOLD,
+            moe_outlier_k=GRASP_MOE_OUTLIER_K,
+            moe_obb_mode=GRASP_MOE_OBB_MODE,
+            moe_skip_obb_rule=GRASP_MOE_SKIP_OBB_RULE,
+            moe_obb_density=GRASP_MOE_OBB_DENSITY,
+            moe_obb_position_spacing_cm=GRASP_MOE_OBB_POSITION_SPACING_CM,
+        )
+
+        out_dir = os.path.join(scene_dir, GRASPS_SUBDIR, gripper_name)
+        os.makedirs(out_dir, exist_ok=True)
+        per_gripper = {}
+        for label, (grasps, conf, tags, _obb) in zip(labels, batch_results):
+            if len(grasps) == 0:
+                logger.info(f"[Perc] [{gripper_name}/{label}] no grasps")
+                continue
+
+            # Collision filter (target object's own pixels excluded).
+            scene_pc = build_scene_pc_excluding_object(scene, label)
+            if len(scene_pc) > GRASP_MAX_SCENE_POINTS:
+                idx = np.random.choice(
+                    len(scene_pc), GRASP_MAX_SCENE_POINTS, replace=False
+                )
+                scene_pc = scene_pc[idx]
+            cf_mask = filter_colliding_grasps(
+                scene_pc=scene_pc,
+                grasp_poses=grasps,
+                collision_threshold=GRASP_COLLISION_THRESHOLD,
+                gripper_surface_points=gripper_surface_points,
+            )
+            grasps = grasps[cf_mask]
+            conf = conf[cf_mask]
+            tags = [t for t, keep in zip(tags, cf_mask) if keep]
+
+            # Top-down filter: |R[2,2]| >= threshold keeps near-vertical approaches.
+            if GRASP_TOP_DOWN_ONLY and len(grasps) > 0:
+                td_mask = np.abs(grasps[:, 2, 2]) >= GRASP_TOP_DOWN_DOT_THRESHOLD
+                grasps = grasps[td_mask]
+                conf = conf[td_mask]
+                tags = [t for t, keep in zip(tags, td_mask) if keep]
+
+            if len(grasps) == 0:
+                logger.info(
+                    f"[Perc] [{gripper_name}/{label}] no grasps after filtering"
+                )
+                continue
+
+            out_path = os.path.join(out_dir, f"{label}.npz")
+            np.savez(
+                out_path,
+                grasps=grasps.astype(np.float32),
+                conf=conf.astype(np.float32),
+                tags=np.array(tags, dtype="<U8"),
+            )
+            per_gripper[label] = len(grasps)
+            logger.info(
+                f"[Perc] [{gripper_name}/{label}] saved {len(grasps)} grasps -> {out_path}"
+            )
+        summary[gripper_name] = per_gripper
+    return summary

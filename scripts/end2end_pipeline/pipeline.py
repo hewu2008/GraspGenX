@@ -5,7 +5,7 @@ import time
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
 from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready_pose
-from .perception import acquire_rgbd, detect_and_segment, write_meta_data
+from .perception import acquire_rgbd, detect_and_segment, write_meta_data, generate_and_save_grasps
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -59,6 +59,7 @@ def main(args=None):
             logger.info(f"[Main] depth: shape={depth.shape} dtype={depth.dtype}")
         detections = detect_and_segment(rgb, yolo_model, scene_dir)
         write_meta_data(scene_dir, robot, len(detections))
+        generate_and_save_grasps(scene_dir)
 
     except KeyboardInterrupt:
         logger.warning("Ctrl+C received; preparing safe shutdown...")
