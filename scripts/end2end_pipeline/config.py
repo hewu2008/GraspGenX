@@ -1,7 +1,5 @@
 """System control parameters and shared constants for the grasp pipeline."""
 
-import os
-
 import numpy as np
 
 from lib_h1_sdk_python import ArmAction, EtherCAT_Motor_Index
@@ -34,11 +32,3 @@ K_COLOR = np.array([
     [0.00, 608.40, 243.36],
     [0.00, 0.00, 1.00],
 ], dtype=np.float64)
-
-
-# ================= Simulation mode config =================
-# Recorded scenes for the simulated perception path. Each subdirectory
-# (00, 01, ...) holds rgb.png, depth.npy, seg.png, meta_data.json.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-REAL_SCENE_DIR = os.path.join(_PROJECT_ROOT, "assets", "zerith", "real_scene")

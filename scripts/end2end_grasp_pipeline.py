@@ -2,8 +2,8 @@
 
 Run from the project root:
 
-    python scripts/end2end_grasp_pipeline.py [--mode sim|real] \
-        [--move-chassis|--no-move-chassis] [--yolo-model PATH]
+    python scripts/end2end_grasp_pipeline.py --scene-dir <dir> --yolo-model <pt> \
+        [--mode sim|real] [--move-chassis|--no-move-chassis]
 """
 
 import argparse
@@ -35,8 +35,9 @@ def _parse_args():
         "--mode",
         choices=["sim", "real"],
         default="real",
-        help="sim: run YOLO detection + segmentation on recorded real_scene scenes (no robot). "
-             "real: live camera + Zerith + robot grasp (default).",
+        help="sim: read RGB-D from the scene dir. real: capture RGB-D from the camera "
+             "into the scene dir (and drive the robot). Detection + segmentation run in "
+             "both modes (default: real).",
     )
     parser.add_argument(
         "--move-chassis",
@@ -46,11 +47,15 @@ def _parse_args():
              "Pass --no-move-chassis when the robot is already positioned at the workspace.",
     )
     parser.add_argument(
+        "--scene-dir",
+        required=True,
+        help="Scene directory holding (sim) or receiving (real) rgb.png / depth.npy / seg.png, "
+             "e.g. assets/zerith/real_scene/00.",
+    )
+    parser.add_argument(
         "--yolo-model",
-        type=str,
-        default=None,
-        help="Path to the YOLO segmentation weights (.pt). Required in --mode sim; "
-             "ignored in real mode.",
+        required=True,
+        help="Path to the YOLO segmentation weights (.pt) used for detection + segmentation.",
     )
     return parser.parse_args()
 

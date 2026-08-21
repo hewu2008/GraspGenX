@@ -1,4 +1,16 @@
-"""RGB-D capture and Zerith detection + register for all detected objects."""
+"""RGB-D acquisition and YOLO detection + segmentation.
+
+The pipeline runs the same detection + segmentation regardless of mode; the
+only mode-dependent step is how the RGB-D frame is obtained:
+
+  - sim:  read ``rgb.png`` and ``depth.npy`` already stored in the scene dir.
+  - real: capture from the head camera and write ``rgb.png`` / ``depth.npy``
+          into the scene dir so the on-disk scene mirrors a sim run.
+
+Detection + segmentation runs YOLO instance segmentation, returns each
+instance's bbox and mask, and writes the combined instance-label mask to
+``<scene_dir>/seg.png`` (label_map convention: obj_1=101, obj_2=102, ...).
+"""
 
 import os
 import time
@@ -6,167 +18,150 @@ import time
 import cv2
 import numpy as np
 
-from camera_client import CameraClient
-from zerith.zerith_client import (
-    create_client,
-    detect_parts,
-    process_label,
-    save_detection_debug,
-)
-
-from .config import (
-    GRPC_TARGET,
-    CAMERA_NAME,
-    ZMQ_SERVER_ADDR,
-    CLIENT_DEBUG_DIR,
-    REGISTER_ITERATIONS,
-    K_COLOR,
-)
+from .config import GRPC_TARGET, CAMERA_NAME
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
 
+# YOLO inference hyperparameters (the model path itself is supplied by the caller).
+YOLO_CONFIDENCE = 0.6
+YOLO_IOU_THRESHOLD = 0.7
+YOLO_IMAGE_SIZE = 640
 
-# ================= 2. RGB-D capture =================
-def capture_rgbd_data():
-    logger.info(f"[B] Connecting to camera service for RGB-D ({GRPC_TARGET})...")
+RGB_FILENAME = "rgb.png"
+DEPTH_FILENAME = "depth.npy"
+SEG_FILENAME = "seg.png"
+
+
+def acquire_rgbd(scene_dir, mode="sim"):
+    """Return (rgb, depth) for the scene, acquiring by mode.
+
+    sim:  read rgb.png / depth.npy from scene_dir.
+    real: capture from the head camera and persist rgb.png / depth.npy into
+          scene_dir so a later sim run reads the same data.
+    """
+    os.makedirs(scene_dir, exist_ok=True)
+    rgb_path = os.path.join(scene_dir, RGB_FILENAME)
+    depth_path = os.path.join(scene_dir, DEPTH_FILENAME)
+
+    if mode == "sim":
+        logger.info(f"[Perc] Reading RGB-D from {rgb_path} and {depth_path}")
+        rgb = cv2.imread(rgb_path)
+        if rgb is None:
+            logger.error(f"[Perc] Failed to read {rgb_path}")
+            return None, None
+        try:
+            depth = np.load(depth_path)
+            logger.info(
+                f"[Perc] Loaded depth: shape={depth.shape} dtype={depth.dtype}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[Perc] Could not load {depth_path} ({e}); continuing with rgb only."
+            )
+            depth = None
+        return rgb, depth
+
+    # real: capture from camera and persist into the scene directory.
+    logger.info(f"[Perc] Capturing RGB-D from camera ({GRPC_TARGET}) into {scene_dir}")
+    from camera_client import CameraClient
     client = CameraClient(grpc_target=GRPC_TARGET, enable_depth=True)
     client.start()
-
-    rgb_path = "zerith_rgb.png"
-    depth_path = "zerith_depth.npy"
-
     try:
-        max_retries = 50
-        for _ in range(max_retries):
+        for _ in range(50):
             depth_data = client.get_latest_depth(CAMERA_NAME)
             color_data = client.get_latest_frame(CAMERA_NAME)
-
             if depth_data is not None and color_data is not None:
                 depth_raw_mm, _ = depth_data
                 color_raw, _ = color_data
-                # Convert to float32 meters for the algorithm.
-                depth_raw_m = depth_raw_mm.astype(np.float32) / 1000.0
-
+                depth_m = depth_raw_mm.astype(np.float32) / 1000.0
                 cv2.imwrite(rgb_path, color_raw)
-                np.save(depth_path, depth_raw_m)
-                logger.info(f" -> Captured. Saved {rgb_path} and {depth_path}")
-                return rgb_path, depth_path
-
+                np.save(depth_path, depth_m)
+                logger.info(f"[Perc] Captured and saved {rgb_path} and {depth_path}")
+                return color_raw, depth_m
             time.sleep(0.1)
-        raise TimeoutError("Image capture timed out. Check the gRPC node.")
+        logger.error("[Perc] Image capture timed out. Check the gRPC node.")
+        return None, None
     finally:
         client.stop()
 
 
-# ================= 3. Perception client (all detected objects) =================
-def build_pose_path(debug_dir, category_id, instance_index):
-    """Path to the per-object pose file saved by zerith_client."""
-    return os.path.join(
-        debug_dir,
-        f"{category_id}_{instance_index}",
-        "ob_in_cam",
-        "0.txt",
-    )
+def detect_and_segment(rgb, yolo_model, scene_dir):
+    """Run YOLO instance segmentation; return detections and save seg.png.
 
-
-def run_perception_client(rgb_path, depth_path, debug_dir=CLIENT_DEBUG_DIR):
-    """Run Detection + Register for all detected objects via zerith_client.
-
-    Each successful object's pose is saved to:
-        <debug_dir>/<category_id>_<instance_index>/ob_in_cam/0.txt
-
-    Returns:
-        dict mapping (category_id, instance_index) -> pose_path.
+    Returns a list of dicts: ``{bbox, mask, class_id, class_name, conf}``.
+    The combined instance-label mask is written to ``<scene_dir>/seg.png``.
     """
-    logger.info("[C] Requesting Zerith Detection + Register for all objects...")
-    os.makedirs(debug_dir, exist_ok=True)
+    if rgb is None:
+        logger.error("[Perc] No RGB image to segment.")
+        return []
+    if not yolo_model:
+        logger.error("[Perc] YOLO model path is required for detection.")
+        return []
+    if not os.path.isfile(yolo_model):
+        logger.error(f"[Perc] YOLO model not found: {yolo_model}")
+        return []
 
-    client = create_client(ZMQ_SERVER_ADDR)
-    if client is None:
-        logger.error(" -> Failed to connect to Zerith server.")
-        return {}
+    from ultralytics import YOLO
 
-    pose_files = {}
+    logger.info(f"[Perc] Loading YOLO model: {yolo_model}")
+    model = YOLO(yolo_model)
+    class_names = model.names
 
-    try:
-        # 1. Detection: keep all returned detections.
-        color, boxes = detect_parts(client, rgb_path)
-        if color is None or boxes is None:
-            logger.error(" -> Detection call failed.")
-            return {}
+    results = model.predict(
+        source=rgb,
+        imgsz=YOLO_IMAGE_SIZE,
+        conf=YOLO_CONFIDENCE,
+        iou=YOLO_IOU_THRESHOLD,
+        verbose=False,
+    )
+    result = results[0]
+    if result.masks is None:
+        logger.info("[Perc] No instances detected.")
+        _save_seg_png(scene_dir, np.zeros(rgb.shape[:2], dtype=np.uint8))
+        return []
 
-        if len(boxes) == 0:
-            logger.warning(" -> No objects detected in current frame.")
-            return {}
+    h, w = rgb.shape[:2]
+    masks_data = result.masks.data.cpu().numpy()
+    boxes = result.boxes
 
-        save_detection_debug(debug_dir, color, boxes)
-        logger.info(f" -> Detection returned {len(boxes)} objects. Starting Register.")
+    detections = []
+    combined = np.zeros((h, w), dtype=np.uint8)
+    for idx in range(len(masks_data)):
+        mask_resized = cv2.resize(
+            masks_data[idx].astype(np.float32),
+            (w, h),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        mask = (mask_resized > 0.5).astype(np.uint8)
+        cls_id = int(boxes.cls[idx])
+        conf = float(boxes.conf[idx])
+        xyxy = boxes.xyxy[idx].cpu().numpy()
+        bbox = [int(v) for v in xyxy]
+        cls_name = class_names.get(cls_id, str(cls_id))
 
-        # 2. Load the same depth data used by zerith_client.main.
-        depth = np.load(depth_path)
+        # label_map convention: obj_1=101, obj_2=102, ...
+        combined[mask == 1] = 101 + idx
+        detections.append({
+            "bbox": bbox,
+            "mask": mask,
+            "class_id": cls_id,
+            "class_name": cls_name,
+            "conf": conf,
+        })
+        logger.info(
+            f"[Perc] [{idx}] {cls_name} conf={conf:.2f} bbox={bbox}"
+        )
 
-        # Same category may appear multiple times; index like zerith_client.main.
-        category_counts = {}
+    seg_path = _save_seg_png(scene_dir, combined)
+    logger.info(
+        f"[Perc] {len(detections)} instance(s); seg saved to {seg_path}"
+    )
+    return detections
 
-        for detection_index, box_dict in enumerate(boxes):
-            label = box_dict["label"]
-            category_id = str(box_dict["category_id"])
 
-            instance_index = category_counts.get(category_id, 0)
-            category_counts[category_id] = instance_index + 1
-
-            box = [
-                int(box_dict["x1"]),
-                int(box_dict["y1"]),
-                int(box_dict["x2"]),
-                int(box_dict["y2"]),
-            ]
-
-            label_output_dir = os.path.join(debug_dir, f"{category_id}_{instance_index}")
-
-            logger.info(f" -> [{detection_index + 1}/{len(boxes)}] "
-                  f"processing {category_id}_{instance_index}: {label}")
-
-            # process_label calls client.register and writes the result to
-            # <label_output_dir>/ob_in_cam/0.txt.
-            success = process_label(
-                client=client,
-                K=K_COLOR,
-                color=color,
-                depth=depth,
-                label=label,
-                category_id=category_id,
-                box=box,
-                mesh_bbox=None,
-                to_origin=None,
-                label_output_dir=label_output_dir,
-                register_iterations=REGISTER_ITERATIONS,
-                show=False,
-            )
-
-            if not success:
-                logger.warning(f" -> {category_id}_{instance_index} register failed; continuing.")
-                continue
-
-            pose_path = build_pose_path(debug_dir, category_id, instance_index)
-
-            if not os.path.isfile(pose_path):
-                logger.warning(f" -> Register succeeded but pose file missing: {pose_path}")
-                continue
-
-            pose_files[(category_id, instance_index)] = pose_path
-            logger.info(f" -> Pose saved: {pose_path}")
-
-        logger.info(f" -> Successfully obtained {len(pose_files)} object poses:")
-        for (category_id, instance_index), pose_path in pose_files.items():
-            logger.info(f"    {category_id}_{instance_index}: {pose_path}")
-
-        return pose_files
-
-    except Exception as e:
-        logger.error(f" -> Perception client crashed: {e}")
-        return {}
-
-    finally:
-        client.close()
+def _save_seg_png(scene_dir, combined_mask):
+    os.makedirs(scene_dir, exist_ok=True)
+    seg_path = os.path.join(scene_dir, SEG_FILENAME)
+    cv2.imwrite(seg_path, combined_mask)
+    return seg_path
