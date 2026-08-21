@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from scipy.spatial.transform import Rotation as R, Slerp
 
-from lib_h1_sdk_python import ArmPose, ArmEndPose
+from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose
 
 from .config import RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION
 from .logging_utils import get_logger
@@ -70,10 +71,33 @@ def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
-    logger.info("[E] Moving arm from relative zero to target smoothly...")
-    _move_arm_to_pose(robot, TARGET_ARM, cur_xyz, cur_quat, dest_xyz, dest_quat, 2)
+    """Move both arms from relative zero to a symmetric ready pose.
+
+    The left arm goes to ``dest_xyz``; the right arm goes to the Y-mirrored
+    pose. Both arms interpolate concurrently so they reach the standby pose
+    at the same time.
+    """
+    logger.info("[E] Moving both arms from relative zero to target smoothly...")
+
+    left_dest = [dest_xyz[0], dest_xyz[1], dest_xyz[2]]
+    right_dest = [dest_xyz[0], -dest_xyz[1], dest_xyz[2]]
+
+    t_left = threading.Thread(
+        target=_move_arm_to_pose,
+        args=(robot, ArmAction.LEFT_ARM, cur_xyz, cur_quat, left_dest, dest_quat, 2),
+    )
+    t_right = threading.Thread(
+        target=_move_arm_to_pose,
+        args=(robot, ArmAction.RIGHT_ARM, cur_xyz, cur_quat, right_dest, dest_quat, 2),
+    )
+
+    t_left.start()
+    t_right.start()
+    t_left.join()
+    t_right.join()
+
     time.sleep(0.5)
-    logger.info(" -> Arm reached target.")
+    logger.info(" -> Arms reached target.")
 
 
 def move_arm_relative(robot, dx, dy, dz):
