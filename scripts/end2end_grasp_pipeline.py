@@ -2,9 +2,10 @@
 
 Run from the project root:
 
-    python scripts/end2end_grasp_pipeline.py
+    python scripts/end2end_grasp_pipeline.py [--move-chassis|--no-move-chassis]
 """
 
+import argparse
 import os
 import sys
 
@@ -26,5 +27,19 @@ for _dir in (
 
 from end2end_pipeline.pipeline import main
 
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="End-to-end grasp pipeline.")
+    parser.add_argument(
+        "--move-chassis",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Drive the chassis to the workspace before grasping (default: enabled). "
+             "Pass --no-move-chassis when the robot is already positioned at the workspace.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    args = _parse_args()
+    main(move_chassis=args.move_chassis)

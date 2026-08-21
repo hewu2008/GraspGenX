@@ -10,7 +10,6 @@ from lib_h1_sdk_python import ArmPose, ArmEndPose
 from .config import RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION
 
 
-# ================= 1. Robot posture preparation =================
 def prepare_robot_posture(robot, cur_waist_z, cur_waist_pitch, tar_waist_z, tar_waist_pitch):
     print("\n[A] Adjusting robot to initial observation posture...")
     waist_steps = int(3.0 * RATE_HZ)

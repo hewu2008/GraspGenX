@@ -12,7 +12,55 @@ from .perception import capture_rgbd_data, run_perception_client
 from .grasp_executor import select_arm, grasp_object
 
 
-def main():
+def approach_workspace(robot, move_chassis=True):
+    """Drive the chassis to the workspace and bring the arm to the ready pose.
+
+    When ``move_chassis`` is False, the chassis is assumed to already be at the
+    workspace; only the posture and arm ready pose are applied.
+    """
+    if move_chassis:
+        chassis_move(robot, 0.8)
+        time.sleep(1.0)
+
+    prepare_robot_posture(robot, 0, 0, 0.67, 1.2)
+    arm_move_pre(robot, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0],
+                [-0.1, 0.0, 0.30], [0.0, 0.0, 0.0, 1.0])
+
+    if move_chassis:
+        chassis_move(robot, 0.3)
+        time.sleep(2.0)
+
+
+def grasp_detected_objects(robot, pose_files):
+    """Grasp every detected object returned by the perception client."""
+    for (category_id, instance_index), pose_path in pose_files.items():
+        print(f"\n[Main] Object pose: {category_id}_{instance_index}")
+        print(pose_path)
+        target_pos, angle = select_arm(robot, pose_path)
+        if target_pos is None:
+            print(" -> [WARN] Target pose resolution failed; skipping.")
+            continue
+        grasp_quat = R.from_euler("xyz", [angle, 0, 0], degrees=True).as_quat()
+        grasp_object(robot, target_pos, grasp_quat)
+        time.sleep(1.0)
+
+
+def run_grasp_attempts(robot):
+    """Repeat the perceive-then-grasp cycle for RETRY_COUNT attempts."""
+    for attempt in range(RETRY_COUNT):
+        print(f"\n===== Grasp attempt {attempt}/{RETRY_COUNT} =====")
+        # Capture RGB-D.
+        rgb_path, depth_path = capture_rgbd_data()
+
+        # Run perception for all detected objects.
+        pose_files = run_perception_client(rgb_path, depth_path)
+
+        # Grasp each detected object sequentially with the single arm.
+        grasp_detected_objects(robot, pose_files)
+        print(f"Grasp flow completed on attempt {attempt}.")
+
+
+def main(move_chassis=True):
     robot = H1Robot()
     try:
         print("[INIT] Instantiating robot and connecting...")
@@ -22,35 +70,9 @@ def main():
 
         robot.switchControlMode(MotorControlMode.HIGH_LEVEL)
         robot.robot_init()
-        chassis_move(robot, 0.8)
-        time.sleep(1.0)
-        prepare_robot_posture(robot, 0, 0, 0.67, 1.2)
-        arm_move_pre(robot, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0],
-                    [-0.1, 0.0, 0.30], [0.0, 0.0, 0.0, 1.0])
-        chassis_move(robot, 0.3)
-        time.sleep(2.0)
 
-        for attempt in range(RETRY_COUNT):
-            print(f"\n===== Grasp attempt {attempt}/{RETRY_COUNT} =====")
-            # Capture RGB-D.
-            rgb_path, depth_path = capture_rgbd_data()
-
-            # Run perception for all detected objects.
-            pose_files = run_perception_client(rgb_path, depth_path)
-
-            # Grasp each detected object sequentially with the single arm.
-            for (category_id, instance_index), pose_path in pose_files.items():
-                print(f"\n[Main] Object pose: {category_id}_{instance_index}")
-                print(pose_path)
-                target_pos, angle = select_arm(robot, pose_path)
-                if target_pos is None:
-                    print(" -> [WARN] Target pose resolution failed; skipping.")
-                    continue
-                grasp_quat = R.from_euler("xyz", [angle, 0, 0], degrees=True).as_quat()
-                grasp_object(robot, target_pos, grasp_quat)
-                time.sleep(1.0)
-
-            print(f"Grasp flow completed on attempt {attempt}.")
+        approach_workspace(robot, move_chassis=move_chassis)
+        run_grasp_attempts(robot)
 
         while True:
             time.sleep(1.0)
