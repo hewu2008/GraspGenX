@@ -14,11 +14,13 @@ instance's bbox and mask, and writes the combined instance-label mask to
 
 import os
 import time
+import json
 
 import cv2
 import numpy as np
 
-from .config import GRPC_TARGET, CAMERA_NAME
+from .config import GRPC_TARGET, CAMERA_NAME, K_COLOR, SCENE_BOUNDS
+from .camera_pose import compute_camera_pose
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -31,6 +33,7 @@ YOLO_IMAGE_SIZE = 640
 RGB_FILENAME = "rgb.png"
 DEPTH_FILENAME = "depth.npy"
 SEG_FILENAME = "seg.png"
+META_FILENAME = "meta_data.json"
 
 
 def acquire_rgbd(scene_dir, mode="sim"):
@@ -165,3 +168,37 @@ def _save_seg_png(scene_dir, combined_mask):
     seg_path = os.path.join(scene_dir, SEG_FILENAME)
     cv2.imwrite(seg_path, combined_mask)
     return seg_path
+
+
+def write_meta_data(scene_dir, robot, num_objects):
+    """Write meta_data.json for the just-captured scene.
+
+    Fields match what graspgenx.utils.scene_loaders expects:
+      intrinsics    : 3x3 K (from config.K_COLOR)
+      camera_pose   : 4x4 camera-to-world (from IMU + motors via compute_camera_pose)
+      label_map     : {"ground": 0, "obj_i": 100 + i}  (matches seg.png convention)
+      scene_bounds  : workspace bbox (from config.SCENE_BOUNDS)
+
+    Returns the written path, or None if the camera pose could not be computed.
+    """
+    T = compute_camera_pose(robot)
+    if T is None:
+        logger.error("[Perc] Failed to compute camera pose; skipping meta_data.json.")
+        return None
+
+    label_map = {"ground": 0}
+    for i in range(1, num_objects + 1):
+        label_map[f"obj_{i}"] = 100 + i
+
+    meta = {
+        "intrinsics": K_COLOR.tolist(),
+        "camera_pose": T.tolist(),
+        "label_map": label_map,
+        "scene_bounds": list(SCENE_BOUNDS),
+    }
+    os.makedirs(scene_dir, exist_ok=True)
+    path = os.path.join(scene_dir, META_FILENAME)
+    with open(path, "w") as f:
+        json.dump(meta, f, indent=2)
+    logger.info(f"[Perc] meta_data.json written to {path}")
+    return path

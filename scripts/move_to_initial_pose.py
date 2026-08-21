@@ -46,8 +46,9 @@ from lib_h1_sdk_python import (
     ArmAction,
     ArmPose,
     ArmEndPose,
-    EtherCAT_Motor_Index,
 )
+
+from end2end_pipeline.camera_pose import read_pose_inputs, assemble_camera_pose
 
 RATE_HZ = 500             # Low-level control rate 500Hz
 DT = 1.0 / RATE_HZ        # Control period 0.002s
@@ -154,58 +155,28 @@ def arm_move_pre(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
 
 
 def print_camera_pose(robot):
-    """Compute the camera-to-world 4x4 transform using IMU for the chassis
-    orientation and URDF forward kinematics for the upper body.
+    """Print the camera-to-world 4x4 transform for the current robot state.
 
-    The IMU (getIMU_State) is mounted on the chassis (dipan_link), so it
-    gives the chassis orientation in the world frame. It does NOT capture
-    the waist pitch/yaw joints, which sit above the chassis -- those are
-    read from MOTOR_WAIST_DOWN / MOTOR_WAIST_UP and applied explicitly.
-
-    Per on-robot calibration, the body_pitch joint physically rotates around
-    the X axis with the opposite sign of its URDF label (URDF axis is Y), so
-    its contribution is R_x(-q_bp), not R_y(+q_bp).
-
-    Chain:
-        dipan_link [chassis, IMU]
-          -> daogui_link    [lift, prismatic Z]
-          -> body_pitch_link [body_pitch: R_x(-q_bp)]
-          -> body_yaw_link   [body_yaw:   R_z(q_by)]
-          -> neck_yaw_link   [neck_yaw:   R_z(q_ny)]
-          -> neck_pitch_link [neck_pitch: R_y(q_np)]
-          -> neck_camera_link [neck_camera: fixed R_nc]
-
-    URDF origins from
-    assets/zerith/urdf/ZR_H1PRO-1.2.00.H.V4.3_URDF_2025.12.02.urdf.
+    The IMU + motor reads and the URDF forward-kinematics chain live in
+    end2end_pipeline.camera_pose (single source of truth); this function just
+    surfaces the intermediate values and the resulting matrix for on-robot
+    calibration debugging.
     """
-    # --- Read IMU for chassis orientation ---
-    ok_imu, imu = robot.getIMU_State()
-    if not ok_imu:
-        print("[camera_pose] Failed to read IMU state.")
+    inputs = read_pose_inputs(robot)
+    if inputs is None:
+        print("[camera_pose] Failed to read IMU / motor states.")
         return None
 
-    # IMU quat is [w, x, y, z]; scipy expects [x, y, z, w]
-    w, x, y, z = imu.quat
-    R_chassis = R.from_quat([x, y, z, w]).as_matrix()
+    imu = inputs.imu
     print("\n[Camera Pose] IMU (base orientation):")
     print(f"  rpy  : {np.array2string(np.asarray(imu.rpy), precision=6, separator=', ')}")
     print(f"  quat : {np.array2string(np.asarray(imu.quat), precision=6, separator=', ')}  [w, x, y, z]")
 
-    # --- Read lift + waist + head motors ---
-    ok_lift, info_lift = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_LIFT)
-    ok_bp,  info_bp  = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_WAIST_DOWN)
-    ok_by,  info_by  = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_WAIST_UP)
-    ok_ny,  info_ny  = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_HEAD_DOWN)
-    ok_np,  info_np  = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_HEAD_UP)
-    if not (ok_lift and ok_bp and ok_by and ok_ny and ok_np):
-        print("[camera_pose] Failed to read motor states.")
-        return None
-
-    q_lift = info_lift.Position_Actual
-    q_bp   = info_bp.Position_Actual    # body_pitch (applied as R_x(-q))
-    q_by   = info_by.Position_Actual    # body_yaw   (revolute Z)
-    q_ny   = info_ny.Position_Actual    # neck_yaw   (revolute Z)
-    q_np   = info_np.Position_Actual    # neck_pitch (revolute Y)
+    q_lift = inputs.lift.Position_Actual
+    q_bp = inputs.body_pitch.Position_Actual
+    q_by = inputs.body_yaw.Position_Actual
+    q_ny = inputs.neck_yaw.Position_Actual
+    q_np = inputs.neck_pitch.Position_Actual
     print("\n[Camera Pose] Motors:")
     print(f"  MOTOR_LIFT        -> lift:        {q_lift:.6f}")
     print(f"  MOTOR_WAIST_DOWN  -> body_pitch:  {q_bp:.6f}")
@@ -213,42 +184,7 @@ def print_camera_pose(robot):
     print(f"  MOTOR_HEAD_DOWN   -> neck_yaw:    {q_ny:.6f}")
     print(f"  MOTOR_HEAD_UP     -> neck_pitch:  {q_np:.6f}")
 
-    # --- URDF origins ---
-    # O_bp.x = 0.1478 is an empirical value; URDF lists 0.1518 but matching
-    # the printed camera pose requires 0.1478 (~4mm forward of URDF value).
-    O_bp = np.array([0.1478, 0, 0.1275])                    # body_pitch origin
-    O_by = np.array([2.71e-5, -1.21e-4, 0.1572])            # body_yaw origin
-    O_ny = np.array([-2.71e-5, 1.21e-4, 0.2491])            # neck_yaw origin
-    O_np = np.array([0, 0, 0.11])                            # neck_pitch origin
-    O_nc = np.array([0.0675568573382885, 0.0324999999999979, -0.0363332072227294])
-    R_nc = R.from_euler("XYZ", [-1.78023593389281, 0, -1.5707963267949],
-                        degrees=False).as_matrix()
-
-    # --- Body rotations (above chassis) ---
-    # body_pitch physically rotates around X with opposite sign (URDF says Y)
-    R_body_pitch = R.from_euler("X", -q_bp, degrees=False).as_matrix()
-    R_body_yaw   = R.from_euler("Z",  q_by, degrees=False).as_matrix()
-    R_body = R_chassis @ R_body_pitch @ R_body_yaw   # body_yaw_link in world
-
-    # --- Neck rotations (from head motors) ---
-    R_ny = R.from_euler("Z", q_ny, degrees=False).as_matrix()    # neck_yaw
-    R_np = R.from_euler("Y", q_np, degrees=False).as_matrix()    # neck_pitch
-
-    # --- Position: base -> body_yaw_link ---
-    t_lift = np.array([0.0, 0.0, q_lift])
-    t_body_yaw = t_lift + R_chassis @ (O_bp + R_body_pitch @ R_body_yaw @ O_by)
-
-    # --- Neck chain: body_yaw_link -> neck_camera_link ---
-    t_neck = O_ny + R_ny @ (O_np + R_np @ O_nc)
-    R_neck = R_ny @ R_np @ R_nc
-
-    # --- Full camera pose ---
-    t_camera = t_body_yaw + R_body @ t_neck
-    R_camera = R_body @ R_neck
-
-    T = np.eye(4)
-    T[:3, :3] = R_camera
-    T[:3, 3] = t_camera
+    T = assemble_camera_pose(inputs)
 
     print("\n[Camera Pose] camera-to-world transform:")
     print("  4x4 matrix:")

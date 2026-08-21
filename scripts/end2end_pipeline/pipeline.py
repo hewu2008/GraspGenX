@@ -5,7 +5,7 @@ import time
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
 from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready_pose
-from .perception import acquire_rgbd, detect_and_segment
+from .perception import acquire_rgbd, detect_and_segment, write_meta_data
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -57,8 +57,8 @@ def main(args=None):
         rgb, depth = acquire_rgbd(scene_dir, mode=mode)
         if depth is not None:
             logger.info(f"[Main] depth: shape={depth.shape} dtype={depth.dtype}")
-        detect_and_segment(rgb, yolo_model, scene_dir)
-        # Grasp wiring (targets from bbox/mask) is deferred.
+        detections = detect_and_segment(rgb, yolo_model, scene_dir)
+        write_meta_data(scene_dir, robot, len(detections))
 
     except KeyboardInterrupt:
         logger.warning("Ctrl+C received; preparing safe shutdown...")
