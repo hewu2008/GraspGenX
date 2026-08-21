@@ -39,3 +39,6 @@ end2end/runs/
 
 # vscode
 .vscode/
+
+# scene
+assets/zerith/real_scene/01

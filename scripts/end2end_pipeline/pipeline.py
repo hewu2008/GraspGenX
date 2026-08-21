@@ -40,15 +40,6 @@ def main(args=None):
         logger.error("[Main] --scene-dir is required (e.g. assets/zerith/real_scene/00).")
         return
 
-    # Simulation mode: no robot. Read RGB-D from disk and run detection.
-    if mode == "sim":
-        logger.info("[Main] Mode: sim — reading recorded RGB-D and running detection.")
-        rgb, depth = acquire_rgbd(scene_dir, mode="sim")
-        if depth is not None:
-            logger.info(f"[Main] depth: shape={depth.shape} dtype={depth.dtype}")
-        detect_and_segment(rgb, yolo_model, scene_dir)
-        return
-
     # Real mode: drive the robot, capture RGB-D into the scene dir, then detect.
     drive_chassis = getattr(args, "move_chassis", True)
     robot = H1Robot()
@@ -63,7 +54,7 @@ def main(args=None):
 
         approach_workspace(robot, drive_chassis=drive_chassis)
 
-        rgb, depth = acquire_rgbd(scene_dir, mode="real")
+        rgb, depth = acquire_rgbd(scene_dir, mode=mode)
         if depth is not None:
             logger.info(f"[Main] depth: shape={depth.shape} dtype={depth.dtype}")
         detect_and_segment(rgb, yolo_model, scene_dir)
