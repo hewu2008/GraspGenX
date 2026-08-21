@@ -2,7 +2,8 @@
 
 Run from the project root:
 
-    python scripts/end2end_grasp_pipeline.py [--move-chassis|--no-move-chassis]
+    python scripts/end2end_grasp_pipeline.py [--mode sim|real] \
+        [--move-chassis|--no-move-chassis] [--yolo-model PATH]
 """
 
 import argparse
@@ -31,11 +32,25 @@ def _setup_sys_path():
 def _parse_args():
     parser = argparse.ArgumentParser(description="End-to-end grasp pipeline.")
     parser.add_argument(
+        "--mode",
+        choices=["sim", "real"],
+        default="real",
+        help="sim: run YOLO detection + segmentation on recorded real_scene scenes (no robot). "
+             "real: live camera + Zerith + robot grasp (default).",
+    )
+    parser.add_argument(
         "--move-chassis",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Drive the chassis to the workspace before grasping (default: enabled). "
              "Pass --no-move-chassis when the robot is already positioned at the workspace.",
+    )
+    parser.add_argument(
+        "--yolo-model",
+        type=str,
+        default=None,
+        help="Path to the YOLO segmentation weights (.pt). Required in --mode sim; "
+             "ignored in real mode.",
     )
     return parser.parse_args()
 

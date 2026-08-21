@@ -65,6 +65,14 @@ def run_grasp_attempts(robot):
 
 def main(args=None):
     logger.info(f"[Main] Args: {args}")
+    mode = getattr(args, "mode", "real")
+    if mode == "sim":
+        from .simulation import run_simulation
+        yolo_model = getattr(args, "yolo_model", None)
+        logger.info("[Main] Mode: sim — running simulated detection + segmentation (no robot).")
+        run_simulation(yolo_model=yolo_model)
+        return
+
     move_chassis = getattr(args, "move_chassis", True)
     robot = H1Robot()
     try:
