@@ -8,10 +8,13 @@ from scipy.spatial.transform import Rotation as R, Slerp
 from lib_h1_sdk_python import ArmPose, ArmEndPose
 
 from .config import RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION
+from .logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def prepare_robot_posture(robot, cur_waist_z, cur_waist_pitch, tar_waist_z, tar_waist_pitch):
-    print("\n[A] Adjusting robot to initial observation posture...")
+    logger.info("[A] Adjusting robot to initial observation posture...")
     waist_steps = int(3.0 * RATE_HZ)
 
     waist_pose = ArmPose()
@@ -67,10 +70,10 @@ def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
-    print("\n[E] Moving arm from relative zero to target smoothly...")
+    logger.info("[E] Moving arm from relative zero to target smoothly...")
     _move_arm_to_pose(robot, TARGET_ARM, cur_xyz, cur_quat, dest_xyz, dest_quat, 2)
     time.sleep(0.5)
-    print(" -> Arm reached target.")
+    logger.info(" -> Arm reached target.")
 
 
 def move_arm_relative(robot, dx, dy, dz):
@@ -107,7 +110,7 @@ def move_arm_relative(robot, dx, dy, dz):
         time.sleep(DT)
 
     time.sleep(0.5)
-    print(" -> Reached target.")
+    logger.info(" -> Reached target.")
 
 
 def move_arm_to_grasp(robot, target_pos, target_quat):
@@ -139,7 +142,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
     dest_xyz = [arm_pos_rel[0] + 0.05, arm_pos_rel[1], arm_pos_rel[2] - 0.01]
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, dest_xyz, arm_quat_rel, 1)
     time.sleep(0.5)
-    print(" -> Reached grasp pose.")
+    logger.info(" -> Reached grasp pose.")
 
 
 def move_chassis(robot: "H1Robot", dist):
@@ -150,7 +153,7 @@ def move_chassis(robot: "H1Robot", dist):
     velocity = speed * direction
     duration = distance / speed
 
-    print(f"[Chassis] Forward: speed={speed} m/s, distance={distance} m, duration={duration:.2f}s")
+    logger.info(f"[Chassis] Forward: speed={speed} m/s, distance={distance} m, duration={duration:.2f}s")
     start_time = time.time()
 
     try:
@@ -160,7 +163,7 @@ def move_chassis(robot: "H1Robot", dist):
 
             elapsed_time = time.time() - start_time
             remaining_distance = distance - (speed * elapsed_time)
-            print(f"[Chassis] elapsed {elapsed_time:.2f}s, remaining {remaining_distance:.2f} m")
+            logger.info(f"[Chassis] elapsed {elapsed_time:.2f}s, remaining {remaining_distance:.2f} m")
 
             elapsed = time.perf_counter() - loop_start
             sleep_time = dt - elapsed
@@ -168,10 +171,10 @@ def move_chassis(robot: "H1Robot", dist):
                 time.sleep(sleep_time)
 
         robot.setChassis_high(0.0, 0.0)
-        print(f"[Chassis] Forward {distance} m complete")
+        logger.info(f"[Chassis] Forward {distance} m complete")
 
     except KeyboardInterrupt:
-        print("\n[Chassis] Manual stop")
+        logger.warning("[Chassis] Manual stop")
         robot.setChassis_high(0.0, 0.0)
 
 
@@ -192,7 +195,7 @@ def move_waist_z(robot, start_z, target_z, duration=WAIST_MOVE_DURATION):
     waist_pose.pitch = WAIST_PITCH
     waist_pose.yaw = 0.0
 
-    print(f"[Waist] Z: {start_z:.2f} m -> {target_z:.2f} m")
+    logger.info(f"[Waist] Z: {start_z:.2f} m -> {target_z:.2f} m")
     for i in range(1, steps + 1):
         ratio = i / steps
         waist_pose.z = start_z + (target_z - start_z) * ratio

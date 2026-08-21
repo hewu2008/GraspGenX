@@ -22,11 +22,14 @@ from .config import (
     REGISTER_ITERATIONS,
     K_COLOR,
 )
+from .logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 # ================= 2. RGB-D capture =================
 def capture_rgbd_data():
-    print(f"\n[B] Connecting to camera service for RGB-D ({GRPC_TARGET})...")
+    logger.info(f"[B] Connecting to camera service for RGB-D ({GRPC_TARGET})...")
     client = CameraClient(grpc_target=GRPC_TARGET, enable_depth=True)
     client.start()
 
@@ -47,7 +50,7 @@ def capture_rgbd_data():
 
                 cv2.imwrite(rgb_path, color_raw)
                 np.save(depth_path, depth_raw_m)
-                print(f" -> Captured. Saved {rgb_path} and {depth_path}")
+                logger.info(f" -> Captured. Saved {rgb_path} and {depth_path}")
                 return rgb_path, depth_path
 
             time.sleep(0.1)
@@ -76,12 +79,12 @@ def run_perception_client(rgb_path, depth_path, debug_dir=CLIENT_DEBUG_DIR):
     Returns:
         dict mapping (category_id, instance_index) -> pose_path.
     """
-    print("\n[C] Requesting Zerith Detection + Register for all objects...")
+    logger.info("[C] Requesting Zerith Detection + Register for all objects...")
     os.makedirs(debug_dir, exist_ok=True)
 
     client = create_client(ZMQ_SERVER_ADDR)
     if client is None:
-        print(" -> [ERROR] Failed to connect to Zerith server.")
+        logger.error(" -> Failed to connect to Zerith server.")
         return {}
 
     pose_files = {}
@@ -90,15 +93,15 @@ def run_perception_client(rgb_path, depth_path, debug_dir=CLIENT_DEBUG_DIR):
         # 1. Detection: keep all returned detections.
         color, boxes = detect_parts(client, rgb_path)
         if color is None or boxes is None:
-            print(" -> [ERROR] Detection call failed.")
+            logger.error(" -> Detection call failed.")
             return {}
 
         if len(boxes) == 0:
-            print(" -> [WARN] No objects detected in current frame.")
+            logger.warning(" -> No objects detected in current frame.")
             return {}
 
         save_detection_debug(debug_dir, color, boxes)
-        print(f" -> Detection returned {len(boxes)} objects. Starting Register.")
+        logger.info(f" -> Detection returned {len(boxes)} objects. Starting Register.")
 
         # 2. Load the same depth data used by zerith_client.main.
         depth = np.load(depth_path)
@@ -122,7 +125,7 @@ def run_perception_client(rgb_path, depth_path, debug_dir=CLIENT_DEBUG_DIR):
 
             label_output_dir = os.path.join(debug_dir, f"{category_id}_{instance_index}")
 
-            print(f" -> [{detection_index + 1}/{len(boxes)}] "
+            logger.info(f" -> [{detection_index + 1}/{len(boxes)}] "
                   f"processing {category_id}_{instance_index}: {label}")
 
             # process_label calls client.register and writes the result to
@@ -143,26 +146,26 @@ def run_perception_client(rgb_path, depth_path, debug_dir=CLIENT_DEBUG_DIR):
             )
 
             if not success:
-                print(f" -> [WARN] {category_id}_{instance_index} register failed; continuing.")
+                logger.warning(f" -> {category_id}_{instance_index} register failed; continuing.")
                 continue
 
             pose_path = build_pose_path(debug_dir, category_id, instance_index)
 
             if not os.path.isfile(pose_path):
-                print(f" -> [WARN] Register succeeded but pose file missing: {pose_path}")
+                logger.warning(f" -> Register succeeded but pose file missing: {pose_path}")
                 continue
 
             pose_files[(category_id, instance_index)] = pose_path
-            print(f" -> Pose saved: {pose_path}")
+            logger.info(f" -> Pose saved: {pose_path}")
 
-        print(f"\n -> Successfully obtained {len(pose_files)} object poses:")
+        logger.info(f" -> Successfully obtained {len(pose_files)} object poses:")
         for (category_id, instance_index), pose_path in pose_files.items():
-            print(f"    {category_id}_{instance_index}: {pose_path}")
+            logger.info(f"    {category_id}_{instance_index}: {pose_path}")
 
         return pose_files
 
     except Exception as e:
-        print(f" -> [EXCEPTION] Perception client crashed: {e}")
+        logger.error(f" -> Perception client crashed: {e}")
         return {}
 
     finally:

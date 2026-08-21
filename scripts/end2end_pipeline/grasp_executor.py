@@ -15,6 +15,9 @@ from .config import (
     GRIPPER_RELEASE_WAIT,
 )
 from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
+from .logging_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 # ================= 4. Grasp computation and execution =================
@@ -58,7 +61,7 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
 
 def select_arm(robot, pose_path):
     """Resolve the target pose for the single (left) arm."""
-    print("\n[D] Reading pose state and solving target matrix...")
+    logger.info("[D] Reading pose state and solving target matrix...")
     ok_cam, cam_state = robot.getHeadCameraRelative()
     cam_pos_rel = getattr(cam_state, "position", None)
     cam_quat_rel = getattr(cam_state, "rotation", None)
@@ -68,7 +71,7 @@ def select_arm(robot, pose_path):
     arm_quat_rel = getattr(arm_state, "rotation", None)
 
     if not (ok_cam and ok_arm):
-        print("Sensor pose retrieval failed!")
+        logger.error("Sensor pose retrieval failed!")
         return None, None
 
     T_obj_cam, angle = load_pose_matrix(pose_path)
@@ -80,12 +83,12 @@ def select_arm(robot, pose_path):
 
 def grasp_object(robot, target_pos, target_quat):
     """Full single-arm grasp cycle: approach, close, lift, place, release, retract."""
-    print(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
+    logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
 
-    print("\n[E] Moving arm to grasp target smoothly...")
+    logger.info("[E] Moving arm to grasp target smoothly...")
     move_arm_to_grasp(robot, target_pos, target_quat)
 
-    print("\n[F] Closing gripper to grasp...")
+    logger.info("[F] Closing gripper to grasp...")
     close_cmd = Motor_Control()
     close_cmd.Position = 1.5
     robot.setGripper_high(TARGET_GRIPPER_MOTOR, close_cmd)
@@ -107,7 +110,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(1.0)
 
     # Drop: lower the waist before releasing.
-    print("[Waist] Lowering waist before release...")
+    logger.info("[Waist] Lowering waist before release...")
     move_waist_z(robot, WAIST_NORMAL_Z, WAIST_RELEASE_Z)
     time.sleep(1.0)
 
@@ -116,7 +119,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(GRIPPER_RELEASE_WAIT)
 
     # Restore the waist before retracting the arm.
-    print("[Waist] Restoring waist after release...")
+    logger.info("[Waist] Restoring waist after release...")
     move_waist_z(robot, WAIST_RELEASE_Z, WAIST_NORMAL_Z)
 
     # Retract to a safe waypoint.
