@@ -3,6 +3,7 @@
 import time
 
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
@@ -92,6 +93,15 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
         T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
         T_cam = cam_pose_inv @ T_world  # world -> camera
 
+        logger.info(
+            f"[Grasp] {obj_label}: pre(world)  pos={T_world[:3, 3].tolist()}, "
+            f"euler_xyz(deg)={R.from_matrix(T_world[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+        )
+        logger.info(
+            f"[Grasp] {obj_label}: post(camera) pos={T_cam[:3, 3].tolist()}, "
+            f"euler_xyz(deg)={R.from_matrix(T_cam[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+        )
+
         logger.info(f"[Grasp] {obj_label}: best conf={conf[best_idx]:.3f}")
         # Separate position and orientation of the grasp pose so that
         # calculate_target_relative_pose interprets them correctly:
@@ -104,7 +114,6 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
         T_grasp_rot = np.eye(4)
         T_grasp_rot[:3, :3] = T_cam[:3, :3]
 
-        from scipy.spatial.transform import Rotation as R
         _euler = R.from_matrix(T_cam[:3, :3]).as_euler("xyz", degrees=True)
         logger.info(
             f"[Grasp] {obj_label}: graspgen pos(cam)={T_cam[:3, 3].tolist()}, "
