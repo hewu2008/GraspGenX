@@ -1,5 +1,6 @@
 """Top-level orchestration of the end-to-end grasp pipeline."""
 
+import threading
 import time
 
 from lib_h1_sdk_python import H1Robot, MotorControlMode
@@ -64,8 +65,17 @@ def main(args=None):
         summary, viz_data = generate_and_save_grasps(scene_dir)
         
         if visualize and viz_data:
-            logger.info("[Main] Generating grasp visualizations...")
-            visualize_saved_grasps(scene_dir, viz_data=viz_data)
+            logger.info("[Main] Starting grasp visualization in background thread...")
+            # Run viser server in a background thread so the main flow can continue
+            viz_thread = threading.Thread(
+                target=visualize_saved_grasps,
+                args=(scene_dir,),
+                kwargs={"viz_data": viz_data, "port": 8080},
+                daemon=True,
+            )
+            viz_thread.start()
+            logger.info("[Main] Visualization started on http://localhost:8080")
+            logger.info("[Main] Open browser to view grasps, press Ctrl+C to stop")
         elif not visualize:
             logger.info("[Main] Visualization disabled by --no-visualize flag.")
         else:

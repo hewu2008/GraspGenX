@@ -290,7 +290,9 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
             model = sampler.model
         gripper = sampler.get_gripper_info()
         viz_data["grippers"][gripper_name] = {
-            "collision_mesh": gripper.collision_mesh
+            "gripper_info": gripper,
+            "collision_mesh": gripper.collision_mesh,
+            "sweep_volume": gripper.sweep_volume if hasattr(gripper, "sweep_volume") else None,
         }
 
         sampled_pts, _ = trimesh.sample.sample_surface(
