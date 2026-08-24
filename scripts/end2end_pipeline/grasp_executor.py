@@ -81,6 +81,39 @@ def select_arm(robot, pose_path):
     return target_pos, angle
 
 
+def resolve_grasp_target(robot, T_obj_cam):
+    """Read camera/arm state and solve for the left-arm relative grasp target.
+
+    Unlike ``select_arm`` (which returns the drop pitch angle), this returns the
+    full target pose (translation + full orientation quaternion) so the exact
+    grasp orientation produced by GraspGenX can be preserved.
+
+    Args:
+        robot: connected H1Robot instance.
+        T_obj_cam: 4x4 target (object or grasp) pose in the camera frame.
+
+    Returns:
+        target_pos, target_quat (full orientation), or (None, None) on failure.
+    """
+    logger.info("[D] Reading pose state and solving target matrix...")
+    ok_cam, cam_state = robot.getHeadCameraRelative()
+    cam_pos_rel = getattr(cam_state, "position", None)
+    cam_quat_rel = getattr(cam_state, "rotation", None)
+
+    ok_arm, arm_state = robot.getHandRelative(TARGET_ARM)
+    arm_pos_rel = getattr(arm_state, "position", None)
+    arm_quat_rel = getattr(arm_state, "rotation", None)
+
+    if not (ok_cam and ok_arm):
+        logger.error("Sensor pose retrieval failed!")
+        return None, None
+
+    target_pos, target_quat = calculate_target_relative_pose(
+        cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam
+    )
+    return target_pos, target_quat
+
+
 def grasp_object(robot, target_pos, target_quat):
     """Full single-arm grasp cycle: approach, close, lift, place, release, retract."""
     logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")

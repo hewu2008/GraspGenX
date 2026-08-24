@@ -2,14 +2,20 @@
 
 import time
 
+import numpy as np
+
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
 from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready_pose
 from .perception import acquire_rgbd, detect_and_segment, write_meta_data, generate_and_save_grasps
 from .grasp_visualization import visualize_saved_grasps
+from .grasp_executor import resolve_grasp_target, grasp_object
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+# Left-gripper used for the sequential pick-and-place execution.
+EXEC_GRIPPER = "zerith_left_gripper"
 
 
 def approach_workspace(robot, drive_chassis=True):
@@ -29,6 +35,73 @@ def approach_workspace(robot, drive_chassis=True):
     if drive_chassis:
         move_chassis(robot, 0.3)
         time.sleep(2.0)
+
+
+def execute_grasp_all_objects(robot, scene_dir, viz_data):
+    """Grasp and place every detected object in sequence using the left gripper.
+
+    For each object, the top-1 conf grasp pose (world frame) is pulled from
+    ``viz_data``, transformed back to the camera frame with the ``camera_pose``
+    stored in meta_data.json, converted to a left-arm relative target via
+    ``resolve_grasp_target``, and executed with ``grasp_object``.
+
+    Args:
+        robot: connected H1Robot instance.
+        scene_dir: path to the scene directory (contains meta_data.json).
+        viz_data: visualization data returned by generate_and_save_grasps.
+    """
+    import json
+    from pathlib import Path
+
+    meta_path = Path(scene_dir) / "meta_data.json"
+    if not meta_path.exists():
+        logger.error(f"[Grasp] meta_data.json not found: {meta_path}")
+        return
+
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+
+    cam_pose = np.asarray(meta.get("camera_pose"), dtype=np.float64)
+    if cam_pose.size != 16:
+        logger.error("[Grasp] camera_pose missing/invalid in meta_data.json")
+        return
+    cam_pose = cam_pose.reshape(4, 4)
+    cam_pose_inv = np.linalg.inv(cam_pose)  # world frame -> camera frame
+
+    grippers = viz_data.get("grippers", {})
+    if EXEC_GRIPPER not in grippers:
+        logger.error(f"[Grasp] gripper {EXEC_GRIPPER!r} not found in viz_data")
+        return
+
+    grasps_data = grippers[EXEC_GRIPPER].get("grasps", {})
+    if not grasps_data:
+        logger.info("[Grasp] No grasps to execute for left gripper.")
+        return
+
+    labels = list(grasps_data.keys())
+    logger.info(f"[Grasp] Picking {len(labels)} object(s) in order: {labels}")
+    for obj_label in labels:
+        data = grasps_data[obj_label]
+        grasps = data.get("grasps")
+        conf = data.get("conf")
+        if grasps is None or len(grasps) == 0:
+            logger.warning(f"[Grasp] {obj_label}: no grasps, skipping")
+            continue
+
+        best_idx = int(np.argmax(conf))
+        T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
+        T_cam = cam_pose_inv @ T_world  # world -> camera (used as T_obj_cam)
+
+        logger.info(f"[Grasp] {obj_label}: best conf={conf[best_idx]:.3f}")
+        target_pos, target_quat = resolve_grasp_target(robot, T_cam)
+        if target_pos is None:
+            logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
+            continue
+
+        grasp_object(robot, target_pos, target_quat)
+        logger.info(f"[Grasp] {obj_label}: grasped & placed.")
+
+    logger.info("[Grasp] All objects grasped & placed.")
 
 
 def main(args=None):
@@ -75,7 +148,9 @@ def main(args=None):
             logger.warning("[Main] No viz_data returned; skipping visualization.")
 
         # ============ Follow-up steps after visualization ============
-        # Insert the grasp-execution / pick-and-place flow here, if desired.
+        # Grasp & place every detected object in sequence with the left gripper.
+        if viz_data:
+            execute_grasp_all_objects(robot, scene_dir, viz_data)
         logger.info("[Main] Pipeline finished.")
 
     except KeyboardInterrupt:
