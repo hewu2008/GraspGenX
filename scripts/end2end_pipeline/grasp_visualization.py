@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import trimesh
+from scipy.spatial.transform import Rotation as R
 
 from graspgenx.utils.viser_utils import (
     create_visualizer,
@@ -152,9 +153,16 @@ def visualize_saved_grasps(
 
             scores = get_color_from_score(conf, use_255_scale=True)
             best_idx = int(conf.argmax())
+            best_grasp = grasps[best_idx]
+            best_pos = best_grasp[:3, 3]
+            best_euler = R.from_matrix(best_grasp[:3, :3]).as_euler("xyz", degrees=True)
             print(
                 f"[Viz] {gripper_name}/{obj_label}: {len(grasps)} grasps, "
                 f"best conf={conf[best_idx]:.3f}"
+            )
+            print(
+                f"[Viz] {gripper_name}/{obj_label} best pose: "
+                f"pos={best_pos.tolist()}, euler_xyz(deg)={best_euler.tolist()}"
             )
 
             for j, grasp in enumerate(grasps):
