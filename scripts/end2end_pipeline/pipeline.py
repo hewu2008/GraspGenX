@@ -90,14 +90,21 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
 
         best_idx = int(np.argmax(conf))
         T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
-        T_cam = cam_pose_inv @ T_world  # world -> camera (used as T_obj_cam)
+        T_cam = cam_pose_inv @ T_world  # world -> camera
 
         logger.info(f"[Grasp] {obj_label}: best conf={conf[best_idx]:.3f}")
-        target_pos, target_quat = resolve_grasp_target(robot, T_cam)
+        # Only the POSITION is meaningful for the arm target; the grasp
+        # orientation from GraspGenX encodes the gripper approach in a frame
+        # that differs from the arm's expected tool-frame.  Using it directly
+        # would inject a large (and potentially unsafe) extra rotation.
+        # Instead we follow the integrated pipeline convention: arm goes to
+        # the target position with the default / identity tool orientation.
+        target_pos, _ = resolve_grasp_target(robot, T_cam)
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
 
+        target_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
         grasp_object(robot, target_pos, target_quat)
         logger.info(f"[Grasp] {obj_label}: grasped & placed.")
 
