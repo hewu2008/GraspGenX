@@ -81,24 +81,33 @@ def visualize_saved_grasps(
     # Render full scene point cloud
     scene_xyz = scene_data.get("scene_xyz")
     scene_rgb = scene_data.get("scene_rgb")
+    print(f"[Viz] scene_xyz: shape={scene_xyz.shape if scene_xyz is not None else 'None'}")
     if scene_xyz is not None and len(scene_xyz) > 0:
-        # Apply scene_bounds filter if available
+        # Apply scene_bounds filter only if it would keep some points
         if len(scene_bounds) > 0:
             mask = np.all(
                 (scene_xyz >= scene_bounds[0]) & (scene_xyz <= scene_bounds[1]),
                 axis=1,
             )
-            scene_xyz = scene_xyz[mask]
-            scene_rgb = scene_rgb[mask] if scene_rgb is not None else None
+            filtered_count = np.sum(mask)
+            print(f"[Viz] scene_bounds filter: {filtered_count}/{len(scene_xyz)} points kept")
+            if filtered_count > 0:
+                scene_xyz = scene_xyz[mask]
+                scene_rgb = scene_rgb[mask] if scene_rgb is not None else None
 
         if len(scene_xyz) > 0:
             visualize_pointcloud(
                 vis, "pc_scene", scene_xyz, scene_rgb, size=0.0025
             )
             print(f"[Viz] Rendered scene point cloud: {len(scene_xyz)} points")
+        else:
+            print("[Viz] Warning: scene point cloud is empty after filtering, skipping")
+    else:
+        print("[Viz] Warning: scene_xyz is None or empty")
 
     # Render all object point clouds
     objects_data = scene_data.get("objects", {})
+    print(f"[Viz] objects_data keys: {list(objects_data.keys())}")
     obj_colors_list = [
         [255, 180, 80],   # orange
         [80, 200, 255],   # cyan
@@ -111,6 +120,7 @@ def visualize_saved_grasps(
     for idx, (label, obj_data) in enumerate(objects_data.items()):
         obj_pc = obj_data.get("pc")
         obj_rgb = obj_data.get("rgb")
+        print(f"[Viz] Object {label}: pc shape={obj_pc.shape if obj_pc is not None else 'None'}")
         if obj_pc is not None and len(obj_pc) > 0:
             # If no RGB, assign a distinctive color
             if obj_rgb is None or len(obj_rgb) == 0:
@@ -142,8 +152,6 @@ def visualize_saved_grasps(
             grasps = data.get("grasps")
             conf = data.get("conf")
             if grasps is None or len(grasps) == 0:
-                continue
-            if obj_label not in objects_data:
                 continue
 
             all_grasps.append(grasps)
