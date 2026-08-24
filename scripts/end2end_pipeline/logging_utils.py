@@ -11,7 +11,7 @@ import logging
 import sys
 
 _LOGGER_NAME = "end2end_pipeline"
-_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+_FORMAT = "%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s"
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -26,6 +26,10 @@ def get_logger(name: str) -> logging.Logger:
         handler.setFormatter(logging.Formatter(_FORMAT))
         root.addHandler(handler)
         root.setLevel(logging.INFO)
+        # Do not let records bubble up to the package root logger. A dependency
+        # (e.g. lib_h1_sdk_python) may install its own handler on the root
+        # logger, which would otherwise print each record a second time.
+        root.propagate = False
     if name == _LOGGER_NAME or name.startswith(_LOGGER_NAME + "."):
         return logging.getLogger(name)
     return logging.getLogger(f"{_LOGGER_NAME}.{name}")

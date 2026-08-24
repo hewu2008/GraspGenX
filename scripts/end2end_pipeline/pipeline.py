@@ -93,18 +93,37 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
         T_cam = cam_pose_inv @ T_world  # world -> camera
 
         logger.info(f"[Grasp] {obj_label}: best conf={conf[best_idx]:.3f}")
-        # Only the POSITION is meaningful for the arm target; the grasp
-        # orientation from GraspGenX encodes the gripper approach in a frame
-        # that differs from the arm's expected tool-frame.  Using it directly
-        # would inject a large (and potentially unsafe) extra rotation.
-        # Instead we follow the integrated pipeline convention: arm goes to
-        # the target position with the default / identity tool orientation.
-        target_pos, _ = resolve_grasp_target(robot, T_cam)
+        # Separate position and orientation of the grasp pose so that
+        # calculate_target_relative_pose interprets them correctly:
+        #   * T_obj_cam  = pure translation (the grasp contact point in cam frame)
+        #   * T_grasp_local = pure rotation (GraspGenX approach direction)
+        # This avoids the semantic mismatch that produced a ~180 deg extra
+        # rotation when the full grasp pose was passed as T_obj_cam.
+        T_obj_pos_cam = np.eye(4)
+        T_obj_pos_cam[:3, 3] = T_cam[:3, 3]
+        T_grasp_rot = np.eye(4)
+        T_grasp_rot[:3, :3] = T_cam[:3, :3]
+
+        from scipy.spatial.transform import Rotation as R
+        _euler = R.from_matrix(T_cam[:3, :3]).as_euler("xyz", degrees=True)
+        logger.info(
+            f"[Grasp] {obj_label}: graspgen pos(cam)={T_cam[:3, 3].tolist()}, "
+            f"euler_xyz(deg)={_euler.tolist()}"
+        )
+
+        target_pos, target_quat = resolve_grasp_target(
+            robot, T_obj_pos_cam, T_grasp_local=T_grasp_rot,
+        )
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
 
-        target_quat = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+        _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        logger.info(
+            f"[Grasp] {obj_label}: target_pos={target_pos.tolist()}, "
+            f"target_quat={target_quat.tolist()}, "
+            f"target_euler_xyz(deg)={_target_euler.tolist()}"
+        )
         grasp_object(robot, target_pos, target_quat)
         logger.info(f"[Grasp] {obj_label}: grasped & placed.")
 
