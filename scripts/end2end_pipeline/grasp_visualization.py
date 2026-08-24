@@ -480,6 +480,7 @@ def visualize_saved_grasps(
     viz_data: Optional[Dict] = None,
 ):
     """Visualize saved grasp .npz files and save as PNG images.
+    One image per gripper showing all objects together.
 
     Args:
         scene_dir: path to the scene directory (containing grasps/ subdir)
@@ -529,6 +530,11 @@ def visualize_saved_grasps(
             print(f"[Viz] No collision mesh for {gripper_name}")
             continue
 
+        # Collect all objects' data for this gripper
+        all_grasps = []
+        all_conf = []
+        all_objects = {}
+        
         for obj_label, data in grasps_data.items():
             grasps = data.get("grasps")
             conf = data.get("conf")
@@ -540,30 +546,41 @@ def visualize_saved_grasps(
                 print(f"[Viz] Object {obj_label} not found in scene data")
                 continue
 
-            scene_dict = {
-                "scene_xyz": scene_data.get("scene_xyz"),
-                "scene_rgb": scene_data.get("scene_rgb"),
-                "objects": {
-                    obj_label: scene_data["objects"][obj_label]
-                },
-            }
+            all_grasps.append(grasps)
+            all_conf.append(conf)
+            all_objects[obj_label] = scene_data["objects"][obj_label]
 
-            output_dir = scene_dir / "visualizations" / gripper_name
-            saved_paths = save_grasp_visualization(
-                scene=scene_dict,
-                grasps=grasps,
-                grasp_conf=conf,
-                grasp_mesh=collision_mesh,
-                obb_dict=None,
-                output_dir=str(output_dir),
-                prefix=obj_label,
-                camera_intrinsics=camera_intrinsics if len(camera_intrinsics) > 0 else None,
-                camera_pose=camera_pose if len(camera_pose) > 0 else None,
-                resolution=resolution,
-                num_views=num_views,
-                scene_bounds=scene_bounds if len(scene_bounds) > 0 else None,
-            )
-            print(f"[Viz] Saved {len(saved_paths)} images for {obj_label}: {saved_paths}")
+        if not all_grasps:
+            print(f"[Viz] No valid grasps for {gripper_name}, skipping")
+            continue
+
+        # Merge all grasps and confs
+        merged_grasps = np.concatenate(all_grasps, axis=0)
+        merged_conf = np.concatenate(all_conf, axis=0)
+
+        # Build scene dict with all objects
+        scene_dict = {
+            "scene_xyz": scene_data.get("scene_xyz"),
+            "scene_rgb": scene_data.get("scene_rgb"),
+            "objects": all_objects,
+        }
+
+        output_dir = scene_dir / "visualizations" / gripper_name
+        saved_paths = save_grasp_visualization(
+            scene=scene_dict,
+            grasps=merged_grasps,
+            grasp_conf=merged_conf,
+            grasp_mesh=collision_mesh,
+            obb_dict=None,
+            output_dir=str(output_dir),
+            prefix="all_objects",
+            camera_intrinsics=camera_intrinsics if len(camera_intrinsics) > 0 else None,
+            camera_pose=camera_pose if len(camera_pose) > 0 else None,
+            resolution=resolution,
+            num_views=num_views,
+            scene_bounds=scene_bounds if len(scene_bounds) > 0 else None,
+        )
+        print(f"[Viz] Saved {len(saved_paths)} images for {gripper_name}: {saved_paths}")
 
 
 def visualize_saved_grasps_from_disk(
@@ -576,6 +593,7 @@ def visualize_saved_grasps_from_disk(
     scene_bounds: Optional[np.ndarray] = None,
 ):
     """Fallback: Load .npz files from disk and visualize.
+    One image per gripper showing all objects together.
 
     Args:
         scene_dir: path to the scene directory
@@ -626,9 +644,14 @@ def visualize_saved_grasps_from_disk(
         if scene_data is None:
             return
 
+        # Collect all objects' data for this gripper
+        all_grasps = []
+        all_conf = []
+        all_objects = {}
+
         for npz_file in gripper_dir.glob("*.npz"):
             obj_label = npz_file.stem
-            print(f"[Viz] Visualizing {obj_label} for {gripper_name}")
+            print(f"[Viz] Loading {obj_label} for {gripper_name}")
 
             try:
                 data = np.load(npz_file)
@@ -640,34 +663,45 @@ def visualize_saved_grasps_from_disk(
                 if obj_label not in scene_data.get("objects", {}):
                     continue
 
-                scene_dict = {
-                    "scene_xyz": scene_data.get("scene_xyz"),
-                    "scene_rgb": scene_data.get("scene_rgb"),
-                    "objects": {
-                        obj_label: scene_data["objects"][obj_label]
-                    },
-                }
-
-                output_dir = scene_dir / "visualizations" / gripper_name
-                saved_paths = save_grasp_visualization(
-                    scene=scene_dict,
-                    grasps=grasps,
-                    grasp_conf=conf,
-                    grasp_mesh=gripper.collision_mesh,
-                    obb_dict=None,
-                    output_dir=str(output_dir),
-                    prefix=obj_label,
-                    camera_intrinsics=camera_intrinsics,
-                    camera_pose=camera_pose,
-                    resolution=resolution,
-                    num_views=num_views,
-                    scene_bounds=scene_bounds,
-                )
-                print(f"[Viz] Saved {len(saved_paths)} images for {obj_label}: {saved_paths}")
+                all_grasps.append(grasps)
+                all_conf.append(conf)
+                all_objects[obj_label] = scene_data["objects"][obj_label]
             except Exception as e:
                 import traceback
-                print(f"[Viz] Failed to visualize {npz_file.name}: {e}")
+                print(f"[Viz] Failed to load {npz_file.name}: {e}")
                 traceback.print_exc()
+
+        if not all_grasps:
+            print(f"[Viz] No valid grasps for {gripper_name}, skipping")
+            continue
+
+        # Merge all grasps and confs
+        merged_grasps = np.concatenate(all_grasps, axis=0)
+        merged_conf = np.concatenate(all_conf, axis=0)
+
+        # Build scene dict with all objects
+        scene_dict = {
+            "scene_xyz": scene_data.get("scene_xyz"),
+            "scene_rgb": scene_data.get("scene_rgb"),
+            "objects": all_objects,
+        }
+
+        output_dir = scene_dir / "visualizations" / gripper_name
+        saved_paths = save_grasp_visualization(
+            scene=scene_dict,
+            grasps=merged_grasps,
+            grasp_conf=merged_conf,
+            grasp_mesh=gripper.collision_mesh,
+            obb_dict=None,
+            output_dir=str(output_dir),
+            prefix="all_objects",
+            camera_intrinsics=camera_intrinsics,
+            camera_pose=camera_pose,
+            resolution=resolution,
+            num_views=num_views,
+            scene_bounds=scene_bounds,
+        )
+        print(f"[Viz] Saved {len(saved_paths)} images for {gripper_name}: {saved_paths}")
 
 
 def load_scene_data(scene_dir: str) -> Optional[Dict]:
