@@ -35,4 +35,5 @@ K_COLOR = np.array([
 
 # World-frame workspace bounds [xmin, ymin, zmin, xmax, ymax, zmax] (m),
 # written to meta_data.json for grasp-generation scene cropping.
-SCENE_BOUNDS = [-0.4, -0.8, -0.2, 1.2, 0.8, 0.6]
+# Expanded to include the full visible scene for both grasp planning and visualization.
+SCENE_BOUNDS = [-1.0, -1.0, -0.3, 1.5, 1.0, 1.5]
