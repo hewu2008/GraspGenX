@@ -214,7 +214,6 @@ def _create_pyrender_scene(
             mat = pyrender.MetallicRoughnessMaterial(
                 metallicFactor=0.0, roughnessFactor=1.0,
                 baseColorFactor=[1.0, 1.0, 1.0, 1.0],
-                flatShading=True,
             )
             scene.add(pyrender.Mesh.from_trimesh(pc_mesh, material=mat, smooth=False))
 
@@ -230,7 +229,6 @@ def _create_pyrender_scene(
                 mat = pyrender.MetallicRoughnessMaterial(
                     metallicFactor=0.0, roughnessFactor=1.0,
                     baseColorFactor=[1.0, 1.0, 1.0, 1.0],
-                    flatShading=True,
                 )
                 scene.add(pyrender.Mesh.from_trimesh(obj_mesh, material=mat, smooth=False))
 
