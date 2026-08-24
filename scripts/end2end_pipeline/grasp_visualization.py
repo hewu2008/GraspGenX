@@ -10,6 +10,14 @@ as an alternative to interactive viser visualization.
 import os
 from typing import Dict, List, Optional, Tuple
 
+# Must be set before importing OpenGL/pyrender: PyOpenGL binds to a platform
+# (GLX vs EGL) the first time it is imported. Setting it later (e.g. at render
+# time) has no effect, which would cause EGL platform init to fail with
+# "'GLXPlatform' object has no attribute 'EGL'". Force EGL and headless for
+# this module since it only renders offscreen.
+os.environ["PYOPENGL_PLATFORM"] = "egl"
+os.environ.setdefault("PYGLET_HEADLESS", "true")
+
 import numpy as np
 import pyrender
 import trimesh
