@@ -46,6 +46,7 @@ def main(args=None):
     # Real mode: drive the robot, capture RGB-D into the scene dir, then detect.
     drive_chassis = getattr(args, "move_chassis", True)
     robot = H1Robot()
+    viz_started = False
     try:
         logger.info("[INIT] Instantiating robot and connecting...")
         if not robot.robot_connect():
@@ -63,17 +64,19 @@ def main(args=None):
         detections = detect_and_segment(rgb, yolo_model, scene_dir)
         write_meta_data(scene_dir, robot, len(detections))
         summary, viz_data = generate_and_save_grasps(scene_dir)
-        
+
         if visualize and viz_data:
             logger.info("[Main] Starting grasp visualization in background thread...")
-            # Run viser server in a background thread so the main flow can continue
+            # Run viser server in a background thread; keep main thread alive below
+            # so the daemon thread (and the HTTP server) stays up for the user.
             viz_thread = threading.Thread(
                 target=visualize_saved_grasps,
                 args=(scene_dir,),
                 kwargs={"viz_data": viz_data, "port": 8080},
-                daemon=True,
+                daemon=False,
             )
             viz_thread.start()
+            viz_started = True
             logger.info("[Main] Visualization started on http://localhost:8080")
             logger.info("[Main] Open browser to view grasps, press Ctrl+C to stop")
         elif not visualize:
@@ -90,3 +93,13 @@ def main(args=None):
         logger.info("[Cleanup] Releasing robot control...")
         if 'robot' in locals() and hasattr(robot, "robot_deinit"):
             robot.robot_deinit()
+
+    # Keep the process alive while the viser server runs, so the user can view
+    # the visualization in the browser. Ctrl+C (KeyboardInterrupt) stops it.
+    if viz_started:
+        logger.info("[Main] Visualization running at http://localhost:8080 ...")
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            logger.info("[Main] Visualization stopped.")
