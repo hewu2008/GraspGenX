@@ -143,57 +143,42 @@ def visualize_saved_grasps(
             print(f"[Viz] No collision mesh for {gripper_name}")
             continue
 
-        # Collect all objects' data for this gripper
-        all_grasps = []
-        all_conf = []
-        all_labels = []
-
+        # Render grasps per-object so each object's top-1 grasp is highlighted.
         for obj_label, data in grasps_data.items():
             grasps = data.get("grasps")
             conf = data.get("conf")
             if grasps is None or len(grasps) == 0:
                 continue
 
-            all_grasps.append(grasps)
-            all_conf.append(conf)
-            all_labels.append(obj_label)
-
-        if not all_grasps:
-            print(f"[Viz] No valid grasps for {gripper_name}")
-            continue
-
-        # Merge all grasps and confs
-        merged_grasps = np.concatenate(all_grasps, axis=0)
-        merged_conf = np.concatenate(all_conf, axis=0)
-        print(f"[Viz] {gripper_name}: {len(merged_grasps)} grasps from {len(all_labels)} objects")
-
-        # Render grasps using visualize_x_grasp (same as demo)
-        scores = get_color_from_score(merged_conf, use_255_scale=True)
-        best_idx = int(merged_conf.argmax())
-
-        for j, grasp in enumerate(merged_grasps):
-            color = [0, 100, 255] if j == best_idx else scores[j]
-            linewidth = 5.0 if j == best_idx else 1.5
-
-            ns_prefix = f"grasps/{gripper_name}"
-            ns = f"{ns_prefix}/grasp_{j:03d}"
-            visualize_x_grasp(
-                vis,
-                ns,
-                grasp,
-                color=color,
-                gripper_info=gripper_info_obj,
-                linewidth=linewidth,
+            scores = get_color_from_score(conf, use_255_scale=True)
+            best_idx = int(conf.argmax())
+            print(
+                f"[Viz] {gripper_name}/{obj_label}: {len(grasps)} grasps, "
+                f"best conf={conf[best_idx]:.3f}"
             )
 
-        # Render top grasp mesh
-        visualize_mesh(
-            vis,
-            f"grasps/{gripper_name}/top_mesh",
-            collision_mesh,
-            color=[0, 100, 255],
-            transform=merged_grasps[best_idx],
-        )
+            for j, grasp in enumerate(grasps):
+                is_best = j == best_idx
+                color = [0, 100, 255] if is_best else scores[j]
+                linewidth = 5.0 if is_best else 1.5
+                ns = f"grasps/{gripper_name}/{obj_label}/grasp_{j:03d}"
+                visualize_x_grasp(
+                    vis,
+                    ns,
+                    grasp,
+                    color=color,
+                    gripper_info=gripper_info_obj,
+                    linewidth=linewidth,
+                )
+
+            # Render top grasp mesh for this object.
+            visualize_mesh(
+                vis,
+                f"grasps/{gripper_name}/{obj_label}/top_mesh",
+                collision_mesh,
+                color=[0, 100, 255],
+                transform=grasps[best_idx],
+            )
 
     print("\n" + "=" * 60)
     print("[Viz] Visualization is ready!")
@@ -299,10 +284,8 @@ def visualize_saved_grasps_from_disk(
 
         collision_mesh = gripper_info.collision_mesh
 
-        # Collect all objects' grasps
-        all_grasps = []
-        all_conf = []
-
+        # Load and render each object's grasps separately so each object's
+        # top-1 grasp is highlighted.
         for npz_file in gripper_dir.glob("*.npz"):
             obj_label = npz_file.stem
             try:
@@ -311,47 +294,39 @@ def visualize_saved_grasps_from_disk(
                 conf = data["conf"]
                 if len(grasps) == 0:
                     continue
-                all_grasps.append(grasps)
-                all_conf.append(conf)
             except Exception as e:
                 print(f"[Viz] Failed to load {npz_file.name}: {e}")
                 continue
 
-        if not all_grasps:
-            print(f"[Viz] No valid grasps for {gripper_name}")
-            continue
-
-        # Merge all grasps and confs
-        merged_grasps = np.concatenate(all_grasps, axis=0)
-        merged_conf = np.concatenate(all_conf, axis=0)
-        print(f"[Viz] {gripper_name}: {len(merged_grasps)} total grasps")
-
-        # Render grasps
-        scores = get_color_from_score(merged_conf, use_255_scale=True)
-        best_idx = int(merged_conf.argmax())
-
-        for j, grasp in enumerate(merged_grasps):
-            color = [0, 100, 255] if j == best_idx else scores[j]
-            linewidth = 5.0 if j == best_idx else 1.5
-
-            ns = f"grasps/{gripper_name}/grasp_{j:03d}"
-            visualize_x_grasp(
-                vis,
-                ns,
-                grasp,
-                color=color,
-                gripper_info=gripper_info,
-                linewidth=linewidth,
+            print(
+                f"[Viz] {gripper_name}/{obj_label}: {len(grasps)} grasps, "
+                f"best conf={conf.max():.3f}"
             )
+            scores = get_color_from_score(conf, use_255_scale=True)
+            best_idx = int(conf.argmax())
 
-        # Render top grasp mesh
-        visualize_mesh(
-            vis,
-            f"grasps/{gripper_name}/top_mesh",
-            collision_mesh,
-            color=[0, 100, 255],
-            transform=merged_grasps[best_idx],
-        )
+            for j, grasp in enumerate(grasps):
+                is_best = j == best_idx
+                color = [0, 100, 255] if is_best else scores[j]
+                linewidth = 5.0 if is_best else 1.5
+                ns = f"grasps/{gripper_name}/{obj_label}/grasp_{j:03d}"
+                visualize_x_grasp(
+                    vis,
+                    ns,
+                    grasp,
+                    color=color,
+                    gripper_info=gripper_info,
+                    linewidth=linewidth,
+                )
+
+            # Render top grasp mesh for this object.
+            visualize_mesh(
+                vis,
+                f"grasps/{gripper_name}/{obj_label}/top_mesh",
+                collision_mesh,
+                color=[0, 100, 255],
+                transform=grasps[best_idx],
+            )
 
     print("\n" + "=" * 60)
     print("[Viz] Visualization is ready!")
