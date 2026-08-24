@@ -197,67 +197,143 @@ def _create_pyrender_scene(
     grasp_mesh: Optional[trimesh.Trimesh] = None,
     best_grasp_idx: Optional[int] = None,
     obb_dict: Optional[Dict] = None,
-    point_radius: float = 0.003,
+    point_radius: float = 0.002,
 ) -> pyrender.Scene:
-    """Build a pyrender scene with all visualization elements."""
+    """Build a pyrender scene with all visualization elements.
+    
+    Renders grasps as line-based gripper outlines (like viser) instead of
+    full 3D meshes, for cleaner and more readable visualization.
+    """
     scene = pyrender.Scene(
-        ambient_light=np.array([0.35, 0.35, 0.35]),
+        ambient_light=np.array([0.4, 0.4, 0.4]),
         bg_color=np.array([0.12, 0.12, 0.18]),
     )
 
-    light = pyrender.DirectionalLight(color=np.ones(3), intensity=2.5)
+    light = pyrender.DirectionalLight(color=np.ones(3), intensity=2.0)
     scene.add(light, pose=np.eye(4))
+    
+    # Add fill light from opposite direction
+    fill_light = pyrender.DirectionalLight(color=np.ones(3), intensity=1.0)
+    fill_pose = np.eye(4)
+    fill_pose[:3, 3] = np.array([-1, -1, 1])
+    scene.add(fill_light, pose=fill_pose)
 
+    # Render scene point cloud
     if scene_xyz is not None and len(scene_xyz) > 0:
         pc_mesh = _make_point_sphere_mesh(scene_xyz, scene_rgb, radius=point_radius)
         if len(pc_mesh.vertices) > 0:
             mat = pyrender.MetallicRoughnessMaterial(
-                metallicFactor=0.0, roughnessFactor=1.0,
+                metallicFactor=0.0, roughnessFactor=0.8,
                 baseColorFactor=[1.0, 1.0, 1.0, 1.0],
             )
             scene.add(pyrender.Mesh.from_trimesh(pc_mesh, material=mat, smooth=False))
 
+    # Render object point clouds with distinct colors
     if obj_pcs is not None:
-        for label, pc in obj_pcs.items():
+        obj_colors_list = [
+            [255, 180, 80],   # orange
+            [80, 200, 255],   # cyan
+            [255, 100, 150],  # pink
+            [150, 255, 100],  # light green
+            [255, 255, 100],  # yellow
+            [200, 150, 255],  # purple
+        ]
+        for idx, (label, pc) in enumerate(obj_pcs.items()):
             if len(pc) == 0:
                 continue
             cols = obj_rgbs.get(label) if obj_rgbs else None
             if cols is None:
-                cols = np.full((len(pc), 3), [255, 180, 80], dtype=np.uint8)
-            obj_mesh = _make_point_sphere_mesh(pc, cols, radius=point_radius * 1.3)
+                color_idx = idx % len(obj_colors_list)
+                cols = np.tile(obj_colors_list[color_idx], (len(pc), 1)).astype(np.uint8)
+            obj_mesh = _make_point_sphere_mesh(pc, cols, radius=point_radius * 1.5)
             if len(obj_mesh.vertices) > 0:
                 mat = pyrender.MetallicRoughnessMaterial(
-                    metallicFactor=0.0, roughnessFactor=1.0,
+                    metallicFactor=0.0, roughnessFactor=0.8,
                     baseColorFactor=[1.0, 1.0, 1.0, 1.0],
                 )
                 scene.add(pyrender.Mesh.from_trimesh(obj_mesh, material=mat, smooth=False))
 
-    if obb_dict is not None:
-        wires = _make_bbox_wireframe(
-            obb_dict["center"], obb_dict["half_extent"], obb_dict["R"]
-        )
-        for wire in wires:
-            mat = pyrender.MetallicRoughnessMaterial(
-                metallicFactor=0.3, roughnessFactor=0.7,
-                baseColorFactor=[1.0, 0.5, 0.0, 1.0],
-            )
-            scene.add(pyrender.Mesh.from_trimesh(wire, material=mat))
+    # Render grasps as line-based gripper outlines (similar to viser)
+    if grasps is not None and len(grasps) > 0:
+        # Use default gripper dimensions if no mesh available
+        # These dimensions match a typical parallel jaw gripper
+        gripper_width = 0.08  # w
+        gripper_depth = 0.05  # d
+        gripper_height = 0.04  # h
+        z_offset = -0.01  # f (offset from grasp pose origin)
+        
+        # Try to get dimensions from mesh if available
+        if grasp_mesh is not None:
+            bounds = grasp_mesh.bounds
+            if bounds is not None:
+                extent = bounds[1] - bounds[0]
+                gripper_width = max(float(extent[0]), 0.04)
+                gripper_depth = max(float(extent[1]), 0.03)
+                gripper_height = max(float(extent[2]), 0.02)
 
-    if grasps is not None and grasp_mesh is not None and len(grasps) > 0:
         for i, grasp in enumerate(grasps):
             color = grasp_colors[i] if grasp_colors is not None else [0, 100, 255]
             is_best = best_grasp_idx is not None and i == best_grasp_idx
+            alpha = 1.0 if is_best else 0.7
 
-            grasp_mesh_copy = grasp_mesh.copy()
-            grasp_mesh_copy.apply_transform(grasp)
+            # Generate gripper outline lines in local frame
+            local_points = np.array([
+                [gripper_width / 2, 0, gripper_height / 2 + z_offset],
+                [gripper_width / 2, 0, -gripper_height / 2 + z_offset],
+                [0, 0, -gripper_height / 2 + z_offset],
+                [0, 0, z_offset],
+                [0, 0, -gripper_height / 2 + z_offset],
+                [-gripper_width / 2, 0, -gripper_height / 2 + z_offset],
+                [-gripper_width / 2, 0, gripper_height / 2 + z_offset],
+            ])
 
-            alpha = 1.0 if is_best else 0.65
-            mat = pyrender.MetallicRoughnessMaterial(
-                metallicFactor=0.15,
-                roughnessFactor=0.35,
-                baseColorFactor=[color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, alpha],
-            )
-            scene.add(pyrender.Mesh.from_trimesh(grasp_mesh_copy, material=mat, smooth=False))
+            # Transform to world frame
+            world_points = (grasp[:3, :3] @ local_points.T).T + grasp[:3, 3]
+
+            # Create line segments (connecting the control points like viser)
+            line_pairs = [
+                (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 0),
+                (0, 2), (3, 6),
+            ]
+
+            for pi, pj in line_pairs:
+                p1 = world_points[pi]
+                p2 = world_points[pj]
+                direction = p2 - p1
+                length = np.linalg.norm(direction)
+                if length < 1e-5:
+                    continue
+                
+                line_radius = 0.004 if is_best else 0.002
+                cyl = trimesh.creation.cylinder(radius=line_radius, height=length)
+                z_axis = np.array([0, 0, 1.0])
+                direction_norm = direction / length
+                axis = np.cross(z_axis, direction_norm)
+                axis_norm = np.linalg.norm(axis)
+                if axis_norm > 1e-6:
+                    axis /= axis_norm
+                    angle = np.arccos(np.clip(np.dot(z_axis, direction_norm), -1, 1))
+                    rot_matrix = trimesh.transformations.rotation_matrix(angle, axis)
+                    cyl.apply_transform(rot_matrix)
+                cyl.apply_translation((p1 + p2) / 2)
+
+                mat = pyrender.MetallicRoughnessMaterial(
+                    metallicFactor=0.2,
+                    roughnessFactor=0.6,
+                    baseColorFactor=[color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, alpha],
+                )
+                scene.add(pyrender.Mesh.from_trimesh(cyl, material=mat, smooth=False))
+
+            # Add a small sphere at the grasp center for clarity
+            if is_best:
+                center_sphere = trimesh.creation.icosphere(radius=0.008)
+                center_sphere.apply_translation(grasp[:3, 3])
+                mat = pyrender.MetallicRoughnessMaterial(
+                    metallicFactor=0.5,
+                    roughnessFactor=0.3,
+                    baseColorFactor=[color[0] / 255.0, color[1] / 255.0, color[2] / 255.0, 1.0],
+                )
+                scene.add(pyrender.Mesh.from_trimesh(center_sphere, material=mat))
 
     return scene
 
@@ -293,10 +369,10 @@ def render_grasp_scene(
     camera_pose: Optional[np.ndarray] = None,
     output_dir: str = ".",
     prefix: str = "grasp",
-    resolution: Tuple[int, int] = (1280, 960),
-    max_scene_points: int = 600,
-    max_obj_points: int = 300,
-    num_views: int = 3,
+    resolution: Tuple[int, int] = (1600, 1200),
+    max_scene_points: int = 2000,
+    max_obj_points: int = 1000,
+    num_views: int = 1,
     scene_bounds: Optional[np.ndarray] = None,
 ) -> List[str]:
     """Render grasp scene and save PNG images.
@@ -326,11 +402,21 @@ def render_grasp_scene(
     _setup_headless()
     os.makedirs(output_dir, exist_ok=True)
 
+    # Save original scene points count for debug
+    orig_scene_pts = len(scene_xyz) if scene_xyz is not None else 0
+    print(f"[Viz] Input: scene_xyz={orig_scene_pts}, objects={len(obj_pcs) if obj_pcs else 0}, grasps={len(grasps) if grasps is not None else 0}")
+
+    # Filter scene points with bounds, but skip if it would leave nothing
     if scene_xyz is not None and len(scene_xyz) > 0 and scene_bounds is not None:
-        scene_xyz, scene_rgb = _filter_scene_points(scene_xyz, scene_rgb, scene_bounds)
+        filtered_xyz, filtered_rgb = _filter_scene_points(scene_xyz, scene_rgb, scene_bounds)
+        if len(filtered_xyz) > 10:  # Only use filtered if we still have enough points
+            scene_xyz, scene_rgb = filtered_xyz, filtered_rgb
+        else:
+            print(f"[Viz] Warning: scene_bounds filtered too many points ({len(filtered_xyz)} remaining), using original")
 
     if scene_xyz is not None:
         scene_xyz, scene_rgb = _downsample_points(scene_xyz, scene_rgb, max_scene_points)
+        print(f"[Viz] After downsample: scene_xyz={len(scene_xyz)}")
 
     if obj_pcs is not None:
         for label in list(obj_pcs.keys()):
@@ -340,6 +426,7 @@ def render_grasp_scene(
                 obj_pcs[label] = pc[idx]
                 if obj_rgbs and label in obj_rgbs:
                     obj_rgbs[label] = obj_rgbs[label][idx]
+            print(f"[Viz] Object {label}: {len(obj_pcs[label])} points")
 
     if grasp_conf is not None and len(grasp_conf) > 0:
         colors = _score_to_colors(grasp_conf)
@@ -349,22 +436,33 @@ def render_grasp_scene(
         best_idx = None
 
     scene_center, char_size = _scene_to_origin(scene_xyz, obj_pcs, grasps)
+    print(f"[Viz] Scene center: {scene_center}, char_size: {char_size:.3f}")
 
     views = []
 
-    if num_views >= 1 and camera_pose is not None:
-        views.append(("camera_view", camera_pose.copy()))
+    # Always add a clear view of the scene center
+    # Use a reasonable default camera pose looking at scene center
+    dist = max(char_size * 2.0, 0.5)
+    default_pose = _compute_camera_pose(scene_center, dist, 0.8, 0.4)
+    views.append(("view_center", default_pose))
+    print(f"[Viz] Default camera pose: {default_pose[:3, 3]}")
 
-    if num_views >= 2:
+    # Also add camera_view if camera_pose is provided
+    if camera_pose is not None:
+        views.append(("camera_view", camera_pose.copy()))
+        print(f"[Viz] Camera pose: {camera_pose[:3, 3]}")
+
+    # Add additional views if requested
+    if num_views >= 3:
         elev = 0.35
-        for i, az in enumerate(np.linspace(0.15, 2 * np.pi + 0.15, max(num_views, 2))):
+        for i, az in enumerate(np.linspace(0.15, 2 * np.pi + 0.15, max(num_views - 2, 2))):
             dist = char_size * 2.5
             pose = _compute_camera_pose(scene_center, dist, az, elev)
             views.append((f"view_{i:02d}", pose))
             if len(views) >= num_views:
                 break
 
-    if num_views >= 3:
+    if num_views >= 4:
         for i, az in enumerate(np.linspace(0, 2 * np.pi, max(num_views - len(views), 1))):
             dist = char_size * 2.0
             pose = _compute_camera_pose(scene_center, dist, az, 0.15)
@@ -372,17 +470,21 @@ def render_grasp_scene(
             if len(views) >= num_views:
                 break
 
+    print(f"[Viz] Total views to render: {len(views)}")
+
     yfov = np.pi / 4
     if camera_intrinsics is not None:
         fy = camera_intrinsics[1, 1]
         yfov_from_intr = 2 * np.arctan(resolution[1] / (2 * fy))
         yfov = min(yfov_from_intr, np.pi / 3)
+        print(f"[Viz] Using yfov from intrinsics: {yfov:.3f}")
 
     renderer = pyrender.OffscreenRenderer(resolution[0], resolution[1])
     camera = pyrender.PerspectiveCamera(yfov=yfov)
 
     saved_paths = []
     for name, cam_pose in views[:num_views]:
+        print(f"[Viz] Rendering view: {name}")
         pyr_scene = _create_pyrender_scene(
             scene_xyz=scene_xyz,
             scene_rgb=scene_rgb,
@@ -397,10 +499,12 @@ def render_grasp_scene(
         )
         pyr_scene.add(camera, pose=cam_pose)
         color, _ = renderer.render(pyr_scene)
+        print(f"[Viz] Render result: shape={color.shape}, mean={color.mean():.2f}")
 
         filepath = os.path.join(output_dir, f"{prefix}_{name}.png")
         Image.fromarray(color).save(filepath)
         saved_paths.append(filepath)
+        print(f"[Viz] Saved: {filepath}")
 
     renderer.delete()
     return saved_paths
@@ -416,8 +520,8 @@ def save_grasp_visualization(
     prefix: str = "scene",
     camera_intrinsics: Optional[np.ndarray] = None,
     camera_pose: Optional[np.ndarray] = None,
-    resolution: Tuple[int, int] = (1280, 960),
-    num_views: int = 3,
+    resolution: Tuple[int, int] = (1600, 1200),
+    num_views: int = 1,
     scene_bounds: Optional[np.ndarray] = None,
 ) -> List[str]:
     """High-level function to save grasp visualization for a scene.
@@ -475,8 +579,8 @@ def save_grasp_visualization(
 def visualize_saved_grasps(
     scene_dir: str,
     assets_dir: Optional[str] = None,
-    num_views: int = 3,
-    resolution: Tuple[int, int] = (1280, 960),
+    num_views: int = 1,
+    resolution: Tuple[int, int] = (1600, 1200),
     viz_data: Optional[Dict] = None,
 ):
     """Visualize saved grasp .npz files and save as PNG images.
@@ -557,6 +661,7 @@ def visualize_saved_grasps(
         # Merge all grasps and confs
         merged_grasps = np.concatenate(all_grasps, axis=0)
         merged_conf = np.concatenate(all_conf, axis=0)
+        print(f"[Viz] {gripper_name}: merged {len(merged_grasps)} grasps from {len(all_grasps)} objects")
 
         # Build scene dict with all objects
         scene_dict = {
@@ -564,8 +669,11 @@ def visualize_saved_grasps(
             "scene_rgb": scene_data.get("scene_rgb"),
             "objects": all_objects,
         }
+        print(f"[Viz] scene_xyz: {len(scene_dict['scene_xyz']) if scene_dict['scene_xyz'] is not None else 0} points")
+        print(f"[Viz] objects: {list(all_objects.keys())}")
 
         output_dir = scene_dir / "visualizations" / gripper_name
+        print(f"[Viz] Saving to: {output_dir}")
         saved_paths = save_grasp_visualization(
             scene=scene_dict,
             grasps=merged_grasps,
@@ -586,8 +694,8 @@ def visualize_saved_grasps(
 def visualize_saved_grasps_from_disk(
     scene_dir: str,
     assets_dir: Optional[str] = None,
-    num_views: int = 3,
-    resolution: Tuple[int, int] = (1280, 960),
+    num_views: int = 1,
+    resolution: Tuple[int, int] = (1600, 1200),
     camera_intrinsics: Optional[np.ndarray] = None,
     camera_pose: Optional[np.ndarray] = None,
     scene_bounds: Optional[np.ndarray] = None,
