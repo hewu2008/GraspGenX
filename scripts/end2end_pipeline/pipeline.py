@@ -1,6 +1,5 @@
 """Top-level orchestration of the end-to-end grasp pipeline."""
 
-import threading
 import time
 
 from lib_h1_sdk_python import H1Robot, MotorControlMode
@@ -46,7 +45,6 @@ def main(args=None):
     # Real mode: drive the robot, capture RGB-D into the scene dir, then detect.
     drive_chassis = getattr(args, "move_chassis", True)
     robot = H1Robot()
-    viz_started = False
     try:
         logger.info("[INIT] Instantiating robot and connecting...")
         if not robot.robot_connect():
@@ -66,23 +64,19 @@ def main(args=None):
         summary, viz_data = generate_and_save_grasps(scene_dir)
 
         if visualize and viz_data:
-            logger.info("[Main] Starting grasp visualization in background thread...")
-            # Run viser server in a background thread; keep main thread alive below
-            # so the daemon thread (and the HTTP server) stays up for the user.
-            viz_thread = threading.Thread(
-                target=visualize_saved_grasps,
-                args=(scene_dir,),
-                kwargs={"viz_data": viz_data, "port": 8080},
-                daemon=False,
-            )
-            viz_thread.start()
-            viz_started = True
-            logger.info("[Main] Visualization started on http://localhost:8080")
-            logger.info("[Main] Open browser to view grasps, press Ctrl+C to stop")
+            # Run visualization on the main thread. It blocks until the user
+            # presses Ctrl+C, then returns so the rest of the flow can proceed.
+            logger.info("[Main] Running visualization in main thread. Press Ctrl+C to stop.")
+            visualize_saved_grasps(scene_dir, viz_data=viz_data, port=8080)
+            logger.info("[Main] Visualization stopped, continuing pipeline...")
         elif not visualize:
             logger.info("[Main] Visualization disabled by --no-visualize flag.")
         else:
             logger.warning("[Main] No viz_data returned; skipping visualization.")
+
+        # ============ Follow-up steps after visualization ============
+        # Insert the grasp-execution / pick-and-place flow here, if desired.
+        logger.info("[Main] Pipeline finished.")
 
     except KeyboardInterrupt:
         logger.warning("Ctrl+C received; preparing safe shutdown...")
@@ -93,13 +87,3 @@ def main(args=None):
         logger.info("[Cleanup] Releasing robot control...")
         if 'robot' in locals() and hasattr(robot, "robot_deinit"):
             robot.robot_deinit()
-
-    # Keep the process alive while the viser server runs, so the user can view
-    # the visualization in the browser. Ctrl+C (KeyboardInterrupt) stops it.
-    if viz_started:
-        logger.info("[Main] Visualization running at http://localhost:8080 ...")
-        try:
-            while True:
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            logger.info("[Main] Visualization stopped.")
