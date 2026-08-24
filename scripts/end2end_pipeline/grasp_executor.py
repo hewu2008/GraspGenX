@@ -2,6 +2,7 @@
 
 import time
 
+import pdb
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -118,9 +119,11 @@ def grasp_object(robot, target_pos, target_quat):
     """Full single-arm grasp cycle: approach, close, lift, place, release, retract."""
     logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
 
+    pdb.set_trace()
     logger.info("[E] Moving arm to grasp target smoothly...")
     move_arm_to_grasp(robot, target_pos, target_quat)
 
+    pdb.set_trace()
     logger.info("[F] Closing gripper to grasp...")
     close_cmd = Motor_Control()
     close_cmd.Position = 1.5
@@ -128,6 +131,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(2.0)
 
     # Lift after grasp.
+    pdb.set_trace()
     move_arm_relative(robot, -0.2, 0, 0.05)
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
@@ -136,6 +140,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(1.0)
 
     # Move to placement position.
+    pdb.set_trace()
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
@@ -143,6 +148,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(1.0)
 
     # Drop: lower the waist before releasing.
+    pdb.set_trace()
     logger.info("[Waist] Lowering waist before release...")
     move_waist_z(robot, WAIST_NORMAL_Z, WAIST_RELEASE_Z)
     time.sleep(1.0)
@@ -152,6 +158,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(GRIPPER_RELEASE_WAIT)
 
     # Restore the waist before retracting the arm.
+    pdb.set_trace()
     logger.info("[Waist] Restoring waist after release...")
     move_waist_z(robot, WAIST_RELEASE_Z, WAIST_NORMAL_Z)
 
@@ -159,11 +166,13 @@ def grasp_object(robot, target_pos, target_quat):
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
+    pdb.set_trace()
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [0.0, 0.30, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)
 
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
+    pdb.set_trace()
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, [-0.1, 0.0, 0.30], [0, 0, 0, 1], 1)
     time.sleep(1.0)
