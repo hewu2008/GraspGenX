@@ -242,7 +242,9 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
     Requires the graspgenx stack: run in the zerith_graspgen env with
     $GRASPGENX_CHECKPOINT_DIR and $GRASPGENX_GRIPPER_CFG_DIR set.
 
-    Returns ``{gripper_name: {label: num_grasps_saved}}``.
+    Returns a tuple: (summary, viz_data)
+        - summary: {gripper_name: {label: num_grasps_saved}}
+        - viz_data: dict containing scene data and gripper meshes for visualization
     """
     import trimesh
     from graspgenx.grasp_server import GraspGenXSampler
@@ -259,7 +261,7 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
     labels = list(scene["objects"].keys())
     if not labels:
         logger.info("[Perc] No segmented objects; skipping grasp generation.")
-        return {}
+        return {}, None
     obj_pcs = [scene["objects"][lab]["pc"] for lab in labels]
     logger.info(f"[Perc] Generating grasps for {len(labels)} object(s): {labels}")
 
@@ -277,6 +279,7 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
     z_offsets = tuple(float(x) for x in GRASP_MOE_Z_OFFSETS_CM)
 
     summary = {}
+    viz_data = {"scene": scene, "grippers": {}}
     model = None  # shared across grippers (model is gripper-independent)
     for gi, gripper_name in enumerate(gripper_names):
         logger.info(f"[Perc] Gripper {gi + 1}/{len(gripper_names)}: {gripper_name}")
@@ -286,6 +289,9 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
         if model is None:
             model = sampler.model
         gripper = sampler.get_gripper_info()
+        viz_data["grippers"][gripper_name] = {
+            "collision_mesh": gripper.collision_mesh
+        }
 
         sampled_pts, _ = trimesh.sample.sample_surface(
             gripper.collision_mesh, GRASP_NUM_COLLISION_SAMPLES
@@ -311,6 +317,7 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
         out_dir = os.path.join(scene_dir, GRASPS_SUBDIR, gripper_name)
         os.makedirs(out_dir, exist_ok=True)
         per_gripper = {}
+        grasps_for_viz = {}
         for label, (grasps, conf, tags, _obb) in zip(labels, batch_results):
             if len(grasps) == 0:
                 logger.info(f"[Perc] [{gripper_name}/{label}] no grasps")
@@ -354,8 +361,14 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                 tags=np.array(tags, dtype="<U8"),
             )
             per_gripper[label] = len(grasps)
+            grasps_for_viz[label] = {
+                "grasps": grasps.astype(np.float32),
+                "conf": conf.astype(np.float32),
+                "tags": tags,
+            }
             logger.info(
                 f"[Perc] [{gripper_name}/{label}] saved {len(grasps)} grasps -> {out_path}"
             )
         summary[gripper_name] = per_gripper
-    return summary
+        viz_data["grippers"][gripper_name]["grasps"] = grasps_for_viz
+    return summary, viz_data

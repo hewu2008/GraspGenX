@@ -8,4 +8,5 @@ sudo -E /home/robot/miniconda3/envs/zerith_graspgen/bin/python scripts/end2end_g
     --mode sim \
     --no-move-chassis \
     --scene-dir assets/zerith/real_scene/01 \
-    --yolo-model assets/zerith/yolo/last_20260807_v0.pt
+    --yolo-model assets/zerith/yolo/last_20260807_v0.pt \
+    --visualize

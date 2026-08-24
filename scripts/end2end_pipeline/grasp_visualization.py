@@ -464,3 +464,212 @@ def save_grasp_visualization(
         num_views=num_views,
         scene_bounds=scene_bounds,
     )
+
+
+def visualize_saved_grasps(
+    scene_dir: str,
+    assets_dir: Optional[str] = None,
+    num_views: int = 3,
+    resolution: Tuple[int, int] = (1280, 960),
+    viz_data: Optional[Dict] = None,
+):
+    """Visualize saved grasp .npz files and save as PNG images.
+
+    Args:
+        scene_dir: path to the scene directory (containing grasps/ subdir)
+        assets_dir: path to assets directory (for gripper configs)
+        num_views: number of camera views
+        resolution: image resolution
+        viz_data: pre-loaded visualization data from generate_and_save_grasps
+    """
+    import json
+    from pathlib import Path
+
+    scene_dir = Path(scene_dir)
+    if not scene_dir.exists():
+        print(f"[Viz] Scene directory not found: {scene_dir}")
+        return
+
+    meta_path = scene_dir / "meta_data.json"
+    if not meta_path.exists():
+        print(f"[Viz] meta_data.json not found in {scene_dir}")
+        return
+
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+
+    camera_intrinsics = np.array(meta.get("intrinsics", []))
+    camera_pose = np.array(meta.get("camera_pose", []))
+    scene_bounds = np.array(meta.get("scene_bounds", []))
+
+    if viz_data is None:
+        print("[Viz] No pre-loaded viz_data, loading from disk...")
+        return visualize_saved_grasps_from_disk(
+            scene_dir, assets_dir, num_views, resolution,
+            camera_intrinsics=camera_intrinsics if len(camera_intrinsics) > 0 else None,
+            camera_pose=camera_pose if len(camera_pose) > 0 else None,
+            scene_bounds=scene_bounds if len(scene_bounds) > 0 else None,
+        )
+
+    scene_data = viz_data.get("scene")
+    grippers_data = viz_data.get("grippers", {})
+
+    for gripper_name, gripper_info in grippers_data.items():
+        print(f"[Viz] Processing gripper: {gripper_name}")
+        collision_mesh = gripper_info.get("collision_mesh")
+        grasps_data = gripper_info.get("grasps", {})
+
+        if collision_mesh is None:
+            print(f"[Viz] No collision mesh for {gripper_name}")
+            continue
+
+        for obj_label, data in grasps_data.items():
+            grasps = data.get("grasps")
+            conf = data.get("conf")
+            if grasps is None or len(grasps) == 0:
+                print(f"[Viz] No grasps for {obj_label}")
+                continue
+
+            if obj_label not in scene_data.get("objects", {}):
+                print(f"[Viz] Object {obj_label} not found in scene data")
+                continue
+
+            scene_dict = {
+                "scene_xyz": scene_data.get("scene_xyz"),
+                "scene_rgb": scene_data.get("scene_rgb"),
+                "objects": {
+                    obj_label: scene_data["objects"][obj_label]
+                },
+            }
+
+            output_dir = scene_dir / "visualizations" / gripper_name
+            saved_paths = save_grasp_visualization(
+                scene=scene_dict,
+                grasps=grasps,
+                grasp_conf=conf,
+                grasp_mesh=collision_mesh,
+                obb_dict=None,
+                output_dir=str(output_dir),
+                prefix=obj_label,
+                camera_intrinsics=camera_intrinsics if len(camera_intrinsics) > 0 else None,
+                camera_pose=camera_pose if len(camera_pose) > 0 else None,
+                resolution=resolution,
+                num_views=num_views,
+                scene_bounds=scene_bounds if len(scene_bounds) > 0 else None,
+            )
+            print(f"[Viz] Saved {len(saved_paths)} images for {obj_label}: {saved_paths}")
+
+
+def visualize_saved_grasps_from_disk(
+    scene_dir: str,
+    assets_dir: Optional[str] = None,
+    num_views: int = 3,
+    resolution: Tuple[int, int] = (1280, 960),
+    camera_intrinsics: Optional[np.ndarray] = None,
+    camera_pose: Optional[np.ndarray] = None,
+    scene_bounds: Optional[np.ndarray] = None,
+):
+    """Fallback: Load .npz files from disk and visualize.
+
+    Args:
+        scene_dir: path to the scene directory
+        assets_dir: path to assets directory
+        num_views: number of camera views
+        resolution: image resolution
+        camera_intrinsics: 3x3 camera intrinsics
+        camera_pose: 4x4 camera pose
+        scene_bounds: scene bounds filter
+    """
+    from pathlib import Path
+    from graspgenx.grasp_server import GraspGenXSampler
+    from graspgenx._setup_dependencies import get_checkpoints_version_dir
+
+    scene_dir = Path(scene_dir)
+    if assets_dir is None:
+        repo_root = scene_dir.parent.parent.parent
+        assets_dir = str(repo_root / "assets")
+
+    grasps_dir = scene_dir / "grasps"
+    if not grasps_dir.exists():
+        print(f"[Viz] Grasps directory not found: {grasps_dir}")
+        return
+
+    checkpoint_root = str(get_checkpoints_version_dir())
+    from graspgenx.utils.checkpoint_io import load_model_cfg
+    model_cfg = load_model_cfg(
+        os.path.join(checkpoint_root, "gen"),
+        os.path.join(checkpoint_root, "dis"),
+    )
+
+    for gripper_dir in grasps_dir.iterdir():
+        if not gripper_dir.is_dir():
+            continue
+        gripper_name = gripper_dir.name
+        print(f"[Viz] Loading gripper: {gripper_name}")
+
+        try:
+            sampler = GraspGenXSampler(
+                model_cfg, gripper_name, assets_dir=assets_dir
+            )
+            gripper = sampler.get_gripper_info()
+        except Exception as e:
+            print(f"[Viz] Failed to load gripper {gripper_name}: {e}")
+            continue
+
+        scene_data = load_scene_data(str(scene_dir))
+        if scene_data is None:
+            return
+
+        for npz_file in gripper_dir.glob("*.npz"):
+            obj_label = npz_file.stem
+            print(f"[Viz] Visualizing {obj_label} for {gripper_name}")
+
+            try:
+                data = np.load(npz_file)
+                grasps = data["grasps"]
+                conf = data["conf"]
+                if len(grasps) == 0:
+                    continue
+
+                if obj_label not in scene_data.get("objects", {}):
+                    continue
+
+                scene_dict = {
+                    "scene_xyz": scene_data.get("scene_xyz"),
+                    "scene_rgb": scene_data.get("scene_rgb"),
+                    "objects": {
+                        obj_label: scene_data["objects"][obj_label]
+                    },
+                }
+
+                output_dir = scene_dir / "visualizations" / gripper_name
+                saved_paths = save_grasp_visualization(
+                    scene=scene_dict,
+                    grasps=grasps,
+                    grasp_conf=conf,
+                    grasp_mesh=gripper.collision_mesh,
+                    obb_dict=None,
+                    output_dir=str(output_dir),
+                    prefix=obj_label,
+                    camera_intrinsics=camera_intrinsics,
+                    camera_pose=camera_pose,
+                    resolution=resolution,
+                    num_views=num_views,
+                    scene_bounds=scene_bounds,
+                )
+                print(f"[Viz] Saved {len(saved_paths)} images for {obj_label}: {saved_paths}")
+            except Exception as e:
+                import traceback
+                print(f"[Viz] Failed to visualize {npz_file.name}: {e}")
+                traceback.print_exc()
+
+
+def load_scene_data(scene_dir: str) -> Optional[Dict]:
+    """Load scene data from disk as fallback."""
+    try:
+        from graspgenx.utils.scene_loaders import load_realworld_scene
+        scene_data = load_realworld_scene(scene_dir, min_obj_points=100)
+        return scene_data
+    except Exception as e:
+        print(f"[Viz] Failed to load scene data: {e}")
+        return None
