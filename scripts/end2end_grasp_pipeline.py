@@ -57,6 +57,13 @@ def _parse_args():
         required=True,
         help="Path to the YOLO segmentation weights (.pt) used for detection + segmentation.",
     )
+    parser.add_argument(
+        "--visualize",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Render grasp visualizations to PNG after grasp generation (default: enabled). "
+             "Pass --no-visualize to skip image output.",
+    )
     return parser.parse_args()
 
 
