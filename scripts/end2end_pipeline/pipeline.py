@@ -125,6 +125,12 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
 
+        # Override the grasp orientation: keep the hand at its ready-pose
+        # orientation (identity quaternion in arm-relative frame) instead of
+        # commanding the GraspGenX approach direction. The hand already points
+        # down at identity, matching the top-down grasp.
+        target_quat = np.array([0.0, 0.0, 0.0, 1.0])
+
         _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
         logger.info(
             f"[Grasp] {obj_label}: target_pos={target_pos.tolist()}, "
