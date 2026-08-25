@@ -32,19 +32,38 @@ def load_pose_matrix(filepath):
 
 
 def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam):
-    """Coordinate transform: perception pose -> arm-relative target pose."""
+    """Coordinate transform: perception pose -> arm-relative target pose.
+
+    Chain (each term expresses the object one frame closer to the arm):
+        T1 : head-camera increment from getHeadCameraRelative()  (camera->head-zero)
+        T2 : fixed URDF neck_camera->chassis transform at URDF zero pose
+             (rotation from neck_camera_joint rpy; translation is the sum of the
+              head/body chain origins from camera_pose.py FK at zero pose)
+        T3 : left-arm mounting offset (chassis -> arm mount)
+        T4 : inverse of the current arm pose (getHandRelative) -> arm-relative
+
+    T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam maps the object pose from the
+    camera frame into the left-arm relative frame about the mounting point.
+    """
+    # T1: head camera pose relative to its own zero position (incremental).
     T1 = np.eye(4)
     T1[:3, :3] = R.from_quat(cam_quat_rel).as_matrix()
     T1[:3, 3] = cam_pos_rel
 
+    # T2: fixed camera -> chassis transform, independent of the current waist.
+    # rotation: URDF neck_camera_joint rpy (extrinsic XYZ, matches camera_pose.py)
+    # translation: sum of URDF head/waist joint origins at zero pose.
     T2 = np.eye(4)
     T2[:3, :3] = R.from_euler('XYZ', [-1.7802, 0.0, -1.5708], degrees=False).as_matrix()
     T2[:3, 3] = [0.2194, 0.0325, 0.6075]
 
-    # Left-arm mounting offset.
+    # Left-arm mounting offset (chassis frame -> left-arm mount frame).
     T3 = np.eye(4)
     T3[:3, 3] = [-0.5743, -0.1800, -0.1208]
 
+    # T4: inverse of the current arm pose. getHandRelative() returns the arm's
+    # pose relative to its own zero; inverting it expresses the object relative
+    # to the *current* arm, which is the target the robot should reach.
     T4_inv = np.eye(4)
     T4_inv[:3, :3] = R.from_quat(arm_quat_rel).as_matrix()
     T4_inv[:3, 3] = arm_pos_rel
@@ -52,6 +71,7 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
 
     T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam
 
+    # Optional local grasp offset on top of the arm-relative pose (identity = none).
     T_grasp_local = np.eye(4)
     T_final = T_obj_in_arm @ T_grasp_local
 
