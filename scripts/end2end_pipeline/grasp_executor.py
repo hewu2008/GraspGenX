@@ -81,11 +81,26 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
     T4_inv[:3, 3] = arm_pos_rel
     T4 = np.linalg.inv(T4_inv)
 
+    def _dbg(label, T):
+        """Log a transform's translation + euler_xyz(deg) for debugging."""
+        logger.info(f"[Transform] {label}:")
+        logger.info(f"[Transform]   translation={T[:3, 3].tolist()}")
+        logger.info(f"[Transform]   euler_xyz(deg)={R.from_matrix(T[:3, :3]).as_euler('xyz', degrees=True).tolist()}")
+
+    logger.info("[Transform] ---------- camera->arm chain ----------")
+    _dbg("input T_obj_cam (camera frame)", T_obj_cam)
+    _dbg("after T1 (T1 @ T_obj_cam, camera->head-zero)", T1 @ T_obj_cam)
+    _dbg("after T2 (T2 @ T1 @ T_obj_cam, head-zero->chassis)", T2 @ T1 @ T_obj_cam)
+    _dbg("after T3 (T3 @ T2 @ T1 @ T_obj_cam, chassis->arm-mount)",
+         T3 @ T2 @ T1 @ T_obj_cam)
+
     T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam
 
     # Optional local grasp offset on top of the arm-relative pose (identity = none).
     T_grasp_local = np.eye(4)
     T_final = T_obj_in_arm @ T_grasp_local
+
+    _dbg("after T4 / final target (arm-relative)", T_final)
 
     target_pos = T_final[:3, 3]
     target_quat = R.from_matrix(T_final[:3, :3]).as_quat()
