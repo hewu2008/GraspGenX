@@ -123,9 +123,6 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
         target_pos, target_quat = resolve_grasp_target(
             robot, T_obj_pos_cam, T_grasp_local=T_grasp_rot,
         )
-        # Force the gripper orientation to 0,0,0 deg (identity): keep only the
-        # resolved grasp position, drive the end effector with zero rotation.
-        target_quat = np.array([0.0, 0.0, 0.0, 1.0])
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue

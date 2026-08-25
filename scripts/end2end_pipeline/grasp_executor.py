@@ -66,10 +66,13 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
     if T_grasp_local is None:
         T_grasp_local = np.eye(4)
 
-    T_final = T_obj_in_arm @ T_grasp_local
-
-    target_pos = T_final[:3, 3]
-    target_quat = R.from_matrix(T_final[:3, :3]).as_quat()
+    # Position and orientation are computed independently:
+    #   * target_pos  = grasp contact point (object xyz in arm frame), only from
+    #                   T_obj_in_arm; the grasp-local offset does not move it.
+    #   * target_quat = the gripper grasp direction directly from T_grasp_local,
+    #                   not combined with the object orientation.
+    target_pos = T_obj_in_arm[:3, 3]
+    target_quat = R.from_matrix(T_grasp_local[:3, :3]).as_quat()
     return target_pos, target_quat
 
 
