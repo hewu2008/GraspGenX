@@ -96,8 +96,24 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
 
     T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam
 
-    # Optional local grasp offset on top of the arm-relative pose (identity = none).
+    _dbg("before T_grasp_local (T_obj_in_arm)", T_obj_in_arm)
+
+    # Coordinate-axis conversion: GraspGenX grasp frame vs. the ZR left-hand
+    # frame (left_gripper.urdf, fingers extend along +X, close along ±Y):
+    #   GraspGenX grasp: Z = approach (finger long axis), X = closing
+    #   ZR hand:         X = approach (finger long axis), Y = closing
+    # So the grasp frame's Z/X/Y must be relabelled to the hand frame's X/Y/Z.
+    # Real-robot tuning: the hand +X was observed pointing AWAY from the object,
+    # so the approach axis is negated here (with Y also negated to keep det=+1,
+    # i.e. a proper rotation; symmetric fingers make the closing-axis sign
+    # physically irrelevant):
+    #   T_grasp_local columns = [-grasp_Z, -grasp_X, +grasp_Y]
+    # Pure rotation (det=+1, translation 0), so target_pos is unchanged.
     T_grasp_local = np.eye(4)
+    T_grasp_local[:3, :3] = np.array(
+        [[0.0, -1.0, 0.0],
+         [0.0, 0.0, -1.0],
+         [1.0, 0.0, 0.0]], dtype=np.float64)
     T_final = T_obj_in_arm @ T_grasp_local
 
     _dbg("after T4 / final target (arm-relative)", T_final)

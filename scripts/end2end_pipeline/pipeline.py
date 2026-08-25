@@ -132,11 +132,6 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
             f"target_euler_xyz(deg)={_target_euler.tolist()}"
         )
         
-        # Override the grasp orientation: keep the hand at its ready-pose
-        # orientation (identity quaternion in arm-relative frame) instead of
-        # commanding the GraspGenX approach direction. The hand already points
-        # down at identity, matching the top-down grasp.
-        target_quat = np.array([0.0, 0.0, 0.0, 1.0])
         import pdb; pdb.set_trace()
         grasp_object(robot, target_pos, target_quat)
         logger.info(f"[Grasp] {obj_label}: grasped & placed.")
