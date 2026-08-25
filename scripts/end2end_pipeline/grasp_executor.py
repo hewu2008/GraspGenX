@@ -64,7 +64,7 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
     #       neck_camera_joint[0.06756, 0.0325, -0.03633]
     #     sum = [0.2194, 0.0325, 0.6075]
     T2 = np.eye(4)
-    T2[:3, :3] = R.from_euler('XYZ', [-1.7802, 0.0, -1.5708], degrees=False).as_matrix()
+    T2[:3, :3] = R.from_euler('xyz', [-1.7802, 0.0, -1.5708], degrees=False).as_matrix()
     T2[:3, 3] = [0.2194, 0.0325, 0.6075]
 
     # T3: left-arm mounting offset, i.e. the (chassis/body_yaw_link) -> left-arm
