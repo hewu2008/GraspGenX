@@ -31,19 +31,8 @@ def load_pose_matrix(filepath):
     return pose, angle
 
 
-def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam,
-                                    T_grasp_local=None):
-    """Coordinate transform: perception pose -> arm-relative target pose.
-
-    Args:
-        cam_pos_rel, cam_quat_rel: camera pose relative to the robot base.
-        arm_pos_rel, arm_quat_rel: current hand pose relative to the robot base.
-        T_obj_cam: 4x4 object pose in the camera frame. Translation = grasp
-            position; rotation = object orientation in the camera frame.
-        T_grasp_local: optional 4x4 grasp offset in the object frame. Its
-            rotation defines the gripper approach direction; its translation
-            offsets the contact point (default identity).
-    """
+def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam):
+    """Coordinate transform: perception pose -> arm-relative target pose."""
     T1 = np.eye(4)
     T1[:3, :3] = R.from_quat(cam_quat_rel).as_matrix()
     T1[:3, 3] = cam_pos_rel
@@ -63,16 +52,11 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
 
     T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam
 
-    if T_grasp_local is None:
-        T_grasp_local = np.eye(4)
+    T_grasp_local = np.eye(4)
+    T_final = T_obj_in_arm @ T_grasp_local
 
-    # Position and orientation are computed independently:
-    #   * target_pos  = grasp contact point (object xyz in arm frame), only from
-    #                   T_obj_in_arm; the grasp-local offset does not move it.
-    #   * target_quat = the gripper grasp direction directly from T_grasp_local,
-    #                   not combined with the object orientation.
-    target_pos = T_obj_in_arm[:3, 3]
-    target_quat = R.from_matrix(T_grasp_local[:3, :3]).as_quat()
+    target_pos = T_final[:3, 3]
+    target_quat = R.from_matrix(T_final[:3, :3]).as_quat()
     return target_pos, target_quat
 
 
@@ -98,20 +82,19 @@ def select_arm(robot, pose_path):
     return target_pos, angle
 
 
-def resolve_grasp_target(robot, T_obj_cam, T_grasp_local=None):
+def resolve_grasp_target(robot, T_obj_cam):
     """Read camera/arm state and solve for the left-arm relative grasp target.
+
+    Unlike ``select_arm`` (which returns the drop pitch angle), this returns the
+    full target pose (translation + full orientation quaternion) so the exact
+    grasp orientation produced by GraspGenX can be preserved.
 
     Args:
         robot: connected H1Robot instance.
-        T_obj_cam: 4x4 target (object) pose in the camera frame. Its translation
-            is the desired grasp position; its rotation is treated as the object
-            orientation (default identity if only position matters).
-        T_grasp_local: optional 4x4 grasp offset in the object frame. When
-            provided, its rotation is applied on top of the object orientation
-            so the arm approaches along the requested grasp direction.
+        T_obj_cam: 4x4 target (object or grasp) pose in the camera frame.
 
     Returns:
-        target_pos, target_quat, or (None, None) on failure.
+        target_pos, target_quat (full orientation), or (None, None) on failure.
     """
     logger.info("[D] Reading pose state and solving target matrix...")
     ok_cam, cam_state = robot.getHeadCameraRelative()
@@ -126,10 +109,8 @@ def resolve_grasp_target(robot, T_obj_cam, T_grasp_local=None):
         logger.error("Sensor pose retrieval failed!")
         return None, None
 
-    T_grasp_local = np.eye(4) if T_grasp_local is None else np.asarray(T_grasp_local, dtype=np.float64)
     target_pos, target_quat = calculate_target_relative_pose(
-        cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam,
-        T_grasp_local=T_grasp_local,
+        cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam
     )
     return target_pos, target_quat
 

@@ -120,9 +120,7 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
             f"euler_xyz(deg)={_euler.tolist()}"
         )
 
-        target_pos, target_quat = resolve_grasp_target(
-            robot, T_obj_pos_cam, T_grasp_local=T_grasp_rot,
-        )
+        target_pos, target_quat = resolve_grasp_target(robot, T_cam)
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
