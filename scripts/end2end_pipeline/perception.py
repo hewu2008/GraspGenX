@@ -221,8 +221,13 @@ GRASP_MOE_OBB_DENSITY = "dense"
 GRASP_MOE_OBB_POSITION_SPACING_CM = 1.0
 GRASP_MIN_OBJ_POINTS = 100
 GRASP_COLLISION_THRESHOLD = 0.002
-GRASP_TOP_DOWN_ONLY = True
-GRASP_TOP_DOWN_DOT_THRESHOLD = 0.85
+# Camera-frame orientation filter: keep only grasps whose pitch/roll (folded
+# to [-90,90]) stay within +/-GRASP_MAX_PITCH_DEG/GRASP_MAX_ROLL_DEG and whose
+# yaw stays within +/-GRASP_MAX_YAW_DEG. Disable with False to keep all poses.
+GRASP_FILTER_ORIENTATION = True
+GRASP_MAX_ROLL_DEG = 20.0
+GRASP_MAX_PITCH_DEG = 20.0
+GRASP_MAX_YAW_DEG = 90.0
 GRASP_MAX_SCENE_POINTS = 8192
 GRASP_NUM_COLLISION_SAMPLES = 2000
 GRASPS_SUBDIR = "grasps"
@@ -343,21 +348,12 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
             conf = conf[cf_mask]
             tags = [t for t, keep in zip(tags, cf_mask) if keep]
 
-            # Top-down filter: keep only grasps whose Z-axis (approach) points
-            # along world -Z, i.e. R[2,2] <= -threshold (the +Z/upward
-            # approaches are rejected).
-            if GRASP_TOP_DOWN_ONLY and len(grasps) > 0:
-                td_mask = grasps[:, 2, 2] <= -GRASP_TOP_DOWN_DOT_THRESHOLD
-                grasps = grasps[td_mask]
-                conf = conf[td_mask]
-                tags = [t for t, keep in zip(tags, td_mask) if keep]
-
             # Pitch/roll/yaw filter in the CAMERA frame. A top-down grasp is
             # ~vertical, so its euler_xyz first angle (roll) is ~180 deg (or 0
             # deg) about the approach axis -- an equivalent pose. We fold
             # roll/pitch into [-90,90] and keep only grasps whose pitch and
             # roll stay within +/-20 deg and whose yaw stays within +/-90 deg.
-            if len(grasps) > 0:
+            if GRASP_FILTER_ORIENTATION and len(grasps) > 0:
                 T_world_cam = np.linalg.inv(scene["camera_pose"])
                 grasps_cam = T_world_cam @ grasps  # (K,4,4) world -> camera
                 eul = R.from_matrix(grasps_cam[:, :3, :3]).as_euler(
@@ -368,9 +364,9 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                 fold = lambda a: np.where(a > 90, a - 180, np.where(a < -90, a + 180, a))
                 roll, pitch = fold(roll), fold(pitch)
                 mask = (
-                    (np.abs(roll) <= 20.0)
-                    & (np.abs(pitch) <= 20.0)
-                    & (np.abs(yaw) <= 90.0)
+                    (np.abs(roll) <= GRASP_MAX_ROLL_DEG)
+                    & (np.abs(pitch) <= GRASP_MAX_PITCH_DEG)
+                    & (np.abs(yaw) <= GRASP_MAX_YAW_DEG)
                 )
                 grasps = grasps[mask]
                 conf = conf[mask]
