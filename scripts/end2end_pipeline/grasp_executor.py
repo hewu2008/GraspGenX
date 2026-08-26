@@ -14,6 +14,7 @@ from .config import (
     WAIST_NORMAL_Z,
     WAIST_RELEASE_Z,
     GRIPPER_RELEASE_WAIT,
+    WRIST_TO_SDK_EEF_OFFSET_M,
 )
 from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
 from .logging_utils import get_logger
@@ -103,20 +104,28 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
     #   GraspGenX grasp: Z = approach (finger long axis), X = closing
     #   ZR hand:         X = approach (finger long axis), Y = closing
     # So the grasp frame's Z/X/Y must be relabelled to the hand frame's X/Y/Z.
-    # Real-robot tuning: the hand +X was observed pointing AWAY from the object,
-    # so the approach axis is negated here (with Y also negated to keep det=+1,
-    # i.e. a proper rotation; symmetric fingers make the closing-axis sign
-    # physically irrelevant):
-    #   T_grasp_local columns = [-grasp_Z, -grasp_X, +grasp_Y]
-    # Pure rotation (det=+1, translation 0), so target_pos is unchanged.
-    T_grasp_local = np.eye(4)
-    T_grasp_local[:3, :3] = np.array(
+    # The configured base_rotation gives the proper rotation (det=+1):
+    #   G_T_U columns = [+grasp_Z, -grasp_X, -grasp_Y]
+    # The closing-axis sign is physically equivalent for this symmetric hand.
+    # The saved GraspGenX pose is the normalized gripper BASE pose.  The
+    # rotation below is G_T_U (GraspGenX base -> wrist-pitch base); their
+    # origins coincide, hence its translation is zero.
+    T_grasp_to_wrist = np.eye(4)
+    T_grasp_to_wrist[:3, :3] = np.array(
         [[0.0, -1.0, 0.0],
          [0.0, 0.0, -1.0],
          [1.0, 0.0, 0.0]], dtype=np.float64)
-    T_final = T_obj_in_arm @ T_grasp_local
 
-    _dbg("after T4 / final target (arm-relative)", T_final)
+    # setArm_high() controls the SDK arm end-effector, not the wrist-pitch
+    # base.  In the Zerith URDF left_end_effector_joint is fixed 0.1435 m
+    # along wrist local +X.  Omitting U_T_E leaves the real gripper behind the
+    # GraspGenX pose by roughly this distance.
+    T_wrist_to_sdk_eef = np.eye(4)
+    T_wrist_to_sdk_eef[:3, 3] = WRIST_TO_SDK_EEF_OFFSET_M
+
+    T_final = T_obj_in_arm @ T_grasp_to_wrist @ T_wrist_to_sdk_eef
+
+    _dbg("after T4 / SDK EEF target (arm-relative)", T_final)
 
     target_pos = T_final[:3, 3]
     target_quat = R.from_matrix(T_final[:3, :3]).as_quat()

@@ -15,6 +15,12 @@ WAIST_PITCH = 1.2
 WAIST_MOVE_DURATION = 2.0
 GRIPPER_RELEASE_WAIT = 2.0  # Wait for the gripper to fully open before restoring waist.
 
+# Fixed transform from the gripper base (left_wrist_pitch_link) to the SDK
+# Cartesian end-effector frame (left_end_effector_link).  This comes from
+# left_end_effector_joint in the Zerith URDF.  GraspGenX poses are anchored at
+# the gripper base, while setArm_high() commands the arm end-effector pose.
+WRIST_TO_SDK_EEF_OFFSET_M = np.array([0.1435, 0.0, 0.0], dtype=np.float64)
+
 # Perception client config
 GRPC_TARGET = "localhost:50051"
 CAMERA_NAME = "rs/cam_high"

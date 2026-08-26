@@ -15,6 +15,25 @@ from .logging_utils import get_logger
 logger = get_logger(__name__)
 
 
+def compose_relative_pose(start_xyz, start_quat, relative_xyz, relative_quat):
+    """Compose an SDK pose with a target transform expressed in the hand frame.
+
+    ``calculate_target_relative_pose`` returns ``current_E_T_target_E``.  The
+    SDK, however, expects ``zero_E_T_target_E`` in ``setArm_high``.  Translation
+    therefore has to be rotated by the current hand orientation and rotation
+    has to be composed; component-wise addition is only valid when the current
+    hand orientation is identity.
+    """
+    start_xyz = np.asarray(start_xyz, dtype=np.float64)
+    relative_xyz = np.asarray(relative_xyz, dtype=np.float64)
+    start_rotation = R.from_quat(start_quat)
+    relative_rotation = R.from_quat(relative_quat)
+
+    absolute_xyz = start_xyz + start_rotation.apply(relative_xyz)
+    absolute_quat = (start_rotation * relative_rotation).as_quat()
+    return absolute_xyz, absolute_quat
+
+
 def prepare_robot_posture(robot, cur_waist_z, cur_waist_pitch, tar_waist_z, tar_waist_pitch):
     logger.info("[A] Adjusting robot to initial observation posture...")
     waist_steps = int(3.0 * RATE_HZ)
@@ -141,8 +160,8 @@ def move_arm_relative(robot, dx, dy, dz):
 def move_arm_to_grasp(robot, target_pos, target_quat):
     """Three-stage approach: pre-grasp, orient, straight-line approach.
 
-    target_pos is the grasp point relative to the current hand, target_quat the
-    grasp orientation. Flow:
+    target_pos/target_quat form the target transform relative to the current
+    SDK end-effector. Flow:
       1. move to a pre-grasp point 10 cm behind the target, along the opposite
          of the grasp approach axis (hand +X / finger long axis);
       2. rotate in place to the grasp orientation;
@@ -152,11 +171,16 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
 
-    target_pos = np.asarray(target_pos, dtype=np.float64)
-    target_abs = np.asarray(arm_pos_rel, dtype=np.float64) + target_pos
+    target_abs, target_abs_quat = compose_relative_pose(
+        arm_pos_rel, arm_quat_rel, target_pos, target_quat
+    )
 
     # Approach axis: the hand +X (finger long axis) in the target orientation.
-    approach_dir = R.from_quat(target_quat).as_matrix()[:, 0]
+    approach_dir = R.from_quat(target_abs_quat).as_matrix()[:, 0]
+    logger.info(
+        f"[Move] Resolved SDK EEF target: position={target_abs.tolist()}, "
+        f"quaternion={target_abs_quat.tolist()}"
+    )
 
     # Stage 1: pre-grasp waypoint, 10 cm behind the target along -approach.
     pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
@@ -167,14 +191,14 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
     time.sleep(0.5)
 
     # Stage 2: rotate in place to the grasp orientation.
-    logger.info(f"[Move] Orient to grasp orientation: {target_quat}")
+    logger.info(f"[Move] Orient to grasp orientation: {target_abs_quat.tolist()}")
     import pdb; pdb.set_trace()
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
                       [arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]],
-                      target_quat, 1)
+                      target_abs_quat.tolist(), 1)
     time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
@@ -184,7 +208,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
-                      target_abs.tolist(), arm_quat_rel, 1)
+                      target_abs.tolist(), target_abs_quat.tolist(), 1)
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
 
