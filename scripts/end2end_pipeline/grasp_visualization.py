@@ -191,16 +191,7 @@ def visualize_saved_grasps(
     print("\n" + "=" * 60)
     print("[Viz] Visualization is ready!")
     print(f"[Viz] Open browser and visit: http://localhost:{port}")
-    print("[Viz] Press Ctrl+C to stop the server")
     print("=" * 60 + "\n")
-
-    # Keep server running and wait for user to press Enter
-    try:
-        while True:
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        print("\n[Viz] Stopping visualization server...")
-        print("[Viz] Done!")
 
 
 def visualize_saved_grasps_from_disk(

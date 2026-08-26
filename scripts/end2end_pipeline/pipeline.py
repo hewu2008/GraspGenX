@@ -163,6 +163,8 @@ def main(args=None):
         robot.robot_init()
 
         approach_workspace(robot, drive_chassis=drive_chassis)
+        logger.info("[Main] Workspace reached, please reset the environment!")
+        import pdb; pdb.set_trace()
 
         rgb, depth = acquire_rgbd(scene_dir, mode=mode)
         if depth is not None:
@@ -174,9 +176,8 @@ def main(args=None):
         if visualize and viz_data:
             # Run visualization on the main thread. It blocks until the user
             # presses Ctrl+C, then returns so the rest of the flow can proceed.
-            logger.info("[Main] Running visualization in main thread. Press Ctrl+C to stop.")
+            logger.info("[Main] Running visualization in main thread.")
             visualize_saved_grasps(scene_dir, viz_data=viz_data, port=8080)
-            logger.info("[Main] Visualization stopped, continuing pipeline...")
         elif not visualize:
             logger.info("[Main] Visualization disabled by --no-visualize flag.")
         else:
