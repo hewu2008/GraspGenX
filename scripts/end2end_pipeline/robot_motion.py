@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import numpy as np
 from scipy.spatial.transform import Rotation as R, Slerp
 
 from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose
