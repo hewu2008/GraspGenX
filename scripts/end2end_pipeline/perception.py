@@ -247,6 +247,7 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
         - viz_data: dict containing scene data and gripper meshes for visualization
     """
     import trimesh
+    from scipy.spatial.transform import Rotation as R
     from graspgenx.grasp_server import GraspGenXSampler
     from graspgenx.samplers.planner import run_planner_on_batch
     from graspgenx.utils.checkpoint_io import load_model_cfg
@@ -350,6 +351,30 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                 grasps = grasps[td_mask]
                 conf = conf[td_mask]
                 tags = [t for t, keep in zip(tags, td_mask) if keep]
+
+            # Pitch/roll/yaw filter in the CAMERA frame. A top-down grasp is
+            # ~vertical, so its euler_xyz first angle (roll) is ~180 deg (or 0
+            # deg) about the approach axis -- an equivalent pose. We fold
+            # roll/pitch into [-90,90] and keep only grasps whose pitch and
+            # roll stay within +/-20 deg and whose yaw stays within +/-90 deg.
+            if len(grasps) > 0:
+                T_world_cam = np.linalg.inv(scene["camera_pose"])
+                grasps_cam = T_world_cam @ grasps  # (K,4,4) world -> camera
+                eul = R.from_matrix(grasps_cam[:, :3, :3]).as_euler(
+                    "xyz", degrees=True
+                )
+                roll, pitch, yaw = eul[:, 0], eul[:, 1], eul[:, 2]
+                # Fold to [-90, 90]: 180/0 top-down flips are the same pose.
+                fold = lambda a: np.where(a > 90, a - 180, np.where(a < -90, a + 180, a))
+                roll, pitch = fold(roll), fold(pitch)
+                mask = (
+                    (np.abs(roll) <= 20.0)
+                    & (np.abs(pitch) <= 20.0)
+                    & (np.abs(yaw) <= 90.0)
+                )
+                grasps = grasps[mask]
+                conf = conf[mask]
+                tags = [t for t, keep in zip(tags, mask) if keep]
 
             if len(grasps) == 0:
                 logger.info(
