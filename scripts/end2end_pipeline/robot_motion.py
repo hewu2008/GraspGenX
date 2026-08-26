@@ -166,6 +166,9 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
          of the grasp approach axis (hand +X / finger long axis);
       2. rotate in place to the grasp orientation;
       3. approach straight along the grasp axis to the target point.
+
+    Returns the absolute (SDK zero-frame) pre-grasp waypoint so the caller can
+    retract back to it after grasping.
     """
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
@@ -211,6 +214,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
                       target_abs.tolist(), target_abs_quat.tolist(), 1)
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
+    return pre_xyz
 
 
 def move_chassis(robot: "H1Robot", dist):

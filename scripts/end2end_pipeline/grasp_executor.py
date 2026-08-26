@@ -16,7 +16,7 @@ from .config import (
     GRIPPER_RELEASE_WAIT,
     WRIST_TO_SDK_EEF_OFFSET_M,
 )
-from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
+from .robot_motion import _move_arm_to_pose, move_arm_to_grasp, move_waist_z
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -193,7 +193,7 @@ def grasp_object(robot, target_pos, target_quat):
 
     logger.info("[E] Moving arm to grasp target smoothly...")
     pdb.set_trace()
-    move_arm_to_grasp(robot, target_pos, target_quat)
+    pre_grasp_xyz = move_arm_to_grasp(robot, target_pos, target_quat)
 
     logger.info("[F] Closing gripper to grasp...")
     pdb.set_trace()
@@ -202,10 +202,22 @@ def grasp_object(robot, target_pos, target_quat):
     robot.setGripper_high(TARGET_GRIPPER_MOTOR, close_cmd)
     time.sleep(2.0)
 
-    # Lift after grasp.
+    # Retract to the pre-grasp point (absolute SDK frame), resetting the hand
+    # orientation to zero (identity quat) on the way.
+    logger.info("[G] Recovering to pre-grasp point, orientation zero...")
+    pdb.set_trace()
+    _, arm_state = robot.getHandRelative(TARGET_ARM)
+    arm_pos_rel = getattr(arm_state, "position", None)
+    arm_quat_rel = getattr(arm_state, "rotation", None)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+                      pre_grasp_xyz, [0, 0, 0, 1], 1)
+    time.sleep(1.0)
+
     logger.info("[G] Lifting arm after grasp...")
     pdb.set_trace()
     move_arm_relative(robot, -0.2, 0, 0.05)
+    time.sleep(1.0)
+
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
