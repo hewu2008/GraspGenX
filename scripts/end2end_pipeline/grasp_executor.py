@@ -16,7 +16,7 @@ from .config import (
     GRIPPER_RELEASE_WAIT,
     WRIST_TO_SDK_EEF_OFFSET_M,
 )
-from .robot_motion import _move_arm_to_pose, move_arm_to_grasp, move_waist_z
+from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
