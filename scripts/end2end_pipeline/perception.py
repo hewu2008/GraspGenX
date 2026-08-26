@@ -342,9 +342,11 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
             conf = conf[cf_mask]
             tags = [t for t, keep in zip(tags, cf_mask) if keep]
 
-            # Top-down filter: |R[2,2]| >= threshold keeps near-vertical approaches.
+            # Top-down filter: keep only grasps whose Z-axis (approach) points
+            # along world -Z, i.e. R[2,2] <= -threshold (the +Z/upward
+            # approaches are rejected).
             if GRASP_TOP_DOWN_ONLY and len(grasps) > 0:
-                td_mask = np.abs(grasps[:, 2, 2]) >= GRASP_TOP_DOWN_DOT_THRESHOLD
+                td_mask = grasps[:, 2, 2] <= -GRASP_TOP_DOWN_DOT_THRESHOLD
                 grasps = grasps[td_mask]
                 conf = conf[td_mask]
                 tags = [t for t, keep in zip(tags, td_mask) if keep]
