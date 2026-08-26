@@ -186,14 +186,15 @@ def grasp_object(robot, target_pos, target_quat):
     pdb.set_trace()
     move_arm_to_grasp(robot, target_pos, target_quat)
 
-    pdb.set_trace()
     logger.info("[F] Closing gripper to grasp...")
+    pdb.set_trace()
     close_cmd = Motor_Control()
     close_cmd.Position = 1.5
     robot.setGripper_high(TARGET_GRIPPER_MOTOR, close_cmd)
     time.sleep(2.0)
 
     # Lift after grasp.
+    logger.info("[G] Lifting arm after grasp...")
     pdb.set_trace()
     move_arm_relative(robot, -0.2, 0, 0.05)
     _, arm_state = robot.getHandRelative(TARGET_ARM)
@@ -203,6 +204,7 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(1.0)
 
     # Move to placement position.
+    logger.info("[H] Moving arm to placement position...")
     pdb.set_trace()
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
@@ -211,8 +213,8 @@ def grasp_object(robot, target_pos, target_quat):
     time.sleep(1.0)
 
     # Drop: lower the waist before releasing.
-    pdb.set_trace()
     logger.info("[Waist] Lowering waist before release...")
+    pdb.set_trace()
     move_waist_z(robot, WAIST_NORMAL_Z, WAIST_RELEASE_Z)
     time.sleep(1.0)
 
@@ -226,6 +228,7 @@ def grasp_object(robot, target_pos, target_quat):
     move_waist_z(robot, WAIST_RELEASE_Z, WAIST_NORMAL_Z)
 
     # Retract to a safe waypoint.
+    logger.info("[I] Retracting arm to safe waypoint...")
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
