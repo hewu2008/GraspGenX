@@ -103,17 +103,6 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
         )
 
         logger.info(f"[Grasp] {obj_label}: best conf={conf[best_idx]:.3f}")
-        # Separate position and orientation of the grasp pose so that
-        # calculate_target_relative_pose interprets them correctly:
-        #   * T_obj_cam  = pure translation (the grasp contact point in cam frame)
-        #   * T_grasp_local = pure rotation (GraspGenX approach direction)
-        # This avoids the semantic mismatch that produced a ~180 deg extra
-        # rotation when the full grasp pose was passed as T_obj_cam.
-        T_obj_pos_cam = np.eye(4)
-        T_obj_pos_cam[:3, 3] = T_cam[:3, 3]
-        T_grasp_rot = np.eye(4)
-        T_grasp_rot[:3, :3] = T_cam[:3, :3]
-
         _euler = R.from_matrix(T_cam[:3, :3]).as_euler("xyz", degrees=True)
         logger.info(
             f"[Grasp] {obj_label}: graspgen pos(cam)={T_cam[:3, 3].tolist()}, "
@@ -126,13 +115,14 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
             continue
 
         _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        target_dist = float(np.linalg.norm(target_pos))
         logger.info(
             f"[Grasp] {obj_label}: target_pos={target_pos.tolist()}, "
             f"target_quat={target_quat.tolist()}, "
-            f"target_euler_xyz(deg)={_target_euler.tolist()}"
+            f"target_euler_xyz(deg)={_target_euler.tolist()}, "
+            f"target_dist={target_dist:.4f}"
         )
         
-        import pdb; pdb.set_trace()
         grasp_object(robot, target_pos, target_quat)
         logger.info(f"[Grasp] {obj_label}: grasped & placed.")
 
