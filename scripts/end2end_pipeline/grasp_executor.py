@@ -182,8 +182,8 @@ def grasp_object(robot, target_pos, target_quat):
     """Full single-arm grasp cycle: approach, close, lift, place, release, retract."""
     logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
 
-    pdb.set_trace()
     logger.info("[E] Moving arm to grasp target smoothly...")
+    pdb.set_trace()
     move_arm_to_grasp(robot, target_pos, target_quat)
 
     pdb.set_trace()

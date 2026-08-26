@@ -138,33 +138,46 @@ def move_arm_relative(robot, dx, dy, dz):
 
 
 def move_arm_to_grasp(robot, target_pos, target_quat):
-    """Three-stage approach: pre-grasp waypoint, orient, final approach."""
+    """Three-stage approach: pre-grasp, orient, straight-line approach.
+
+    target_pos is the grasp point relative to the current hand, target_quat the
+    grasp orientation. Flow:
+      1. move to a pre-grasp point 10 cm behind the target, along the opposite
+         of the grasp approach axis (hand +X / finger long axis);
+      2. rotate in place to the grasp orientation;
+      3. approach straight along the grasp axis to the target point.
+    """
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
 
-    # Pre-grasp waypoint: pull back along X, lift along Y.
-    temp_xyz = [arm_pos_rel[0] + target_pos[0] - 0.10,
-                arm_pos_rel[1] + target_pos[1] + 0.02,
-                arm_pos_rel[2] + target_pos[2]]
-    temp_quat = [0.0, 0.0, 0.0, 1.0]
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, temp_quat, 2)
+    target_pos = np.asarray(target_pos, dtype=np.float64)
+    target_abs = np.asarray(arm_pos_rel, dtype=np.float64) + target_pos
+
+    # Approach axis: the hand +X (finger long axis) in the target orientation.
+    approach_dir = R.from_quat(target_quat).as_matrix()[:, 0]
+
+    # Stage 1: pre-grasp waypoint, 10 cm behind the target along -approach.
+    pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+                      pre_xyz, arm_quat_rel, 2)
     time.sleep(0.5)
 
-    # Rotate to grasp orientation at the same position.
+    # Stage 2: rotate in place to the grasp orientation.
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    temp_xyz = [arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]]
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, temp_xyz, target_quat, 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+                      [arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]],
+                      target_quat, 1)
     time.sleep(0.5)
 
-    # Final approach toward the object.
+    # Stage 3: straight-line approach along the grasp axis to the target.
     _, arm_state = robot.getHandRelative(TARGET_ARM)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    dest_xyz = [arm_pos_rel[0] + 0.05, arm_pos_rel[1], arm_pos_rel[2] - 0.01]
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel, dest_xyz, arm_quat_rel, 1)
+    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+                      target_abs.tolist(), arm_quat_rel, 1)
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
 
