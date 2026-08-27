@@ -242,10 +242,7 @@ def main(args=None):
         else:
             logger.info("[Main] Sim mode: keeping existing meta_data.json.")
         summary_head, viz_data_head = generate_and_save_grasps(scene_dir)
-        if mode == "real":
-            execute_grasp_all_objects(robot, scene_dir, viz_data_head, dry_run=True)
-        else:
-            logger.info("[Main] Sim mode: skipping head-camera grasp resolution/execution.")
+        execute_grasp_all_objects(robot, scene_dir, viz_data_head, dry_run=True)
 
         # ---- Left-hand (wrist) camera: the scene that drives grasping ----
         # Sibling of --scene-dir, e.g. ".../real_scene/02_hand_camera".
