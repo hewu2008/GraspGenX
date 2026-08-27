@@ -284,7 +284,8 @@ def main(args=None):
             if mode == "real":
                 execute_grasp_all_objects_hand(robot, hand_scene, viz_data_hand)
             else:
-                logger.info("[Main] Sim mode: skipping hand-camera grasp execution.")
+                logger.info("[Main] Sim mode: dry-run hand-camera grasp execution.")
+                execute_grasp_all_objects_hand(robot, hand_scene, viz_data_hand, dry_run=True)
         else:
             logger.warning("[Main] No hand-camera viz_data; nothing to execute.")
         logger.info("[Main] Pipeline finished.")
