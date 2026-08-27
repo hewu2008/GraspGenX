@@ -382,9 +382,6 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                     "xyz", degrees=True
                 )
                 roll, pitch, yaw = eul[:, 0], eul[:, 1], eul[:, 2]
-                # Fold to [-90, 90]: 180/0 top-down flips are the same pose.
-                fold = lambda a: np.where(a > 90, a - 180, np.where(a < -90, a + 180, a))
-                roll, pitch = fold(roll), fold(pitch)
                 mask = (
                     (np.abs(roll) <= GRASP_MAX_ROLL_DEG)
                     & (np.abs(pitch) <= GRASP_MAX_PITCH_DEG)
