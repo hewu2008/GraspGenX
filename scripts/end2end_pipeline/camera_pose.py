@@ -103,3 +103,49 @@ def compute_camera_pose(robot):
     if inputs is None:
         return None
     return assemble_camera_pose(inputs)
+
+
+def compute_hand_camera_pose(robot):
+    """Compute the 4x4 left-hand (wrist) camera-to-world transform independently.
+
+    Chain (direct from chassis, independent of head camera/neck motors):
+        T_world_chassis     = [R_chassis (IMU), t_lift]
+        T_chassis_arm_mount = inv(T3)  (left-arm chassis mounting offset)
+        T_arm_mount_eef     = arm_pose_rel (from getHandRelative)
+        T_world_hand_cam    = T_world_chassis @ T_chassis_arm_mount @ T_arm_mount_eef @ CAM_TO_SDK_EEF_HAND
+    """
+    from .config import TARGET_ARM
+    from .grasp_executor import CAM_TO_SDK_EEF_HAND
+
+    ok_imu, imu = robot.getIMU_State()
+    ok_lift, info_lift = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_LIFT)
+    ok_arm, arm_state = robot.getHandRelative(TARGET_ARM)
+    if not (ok_imu and ok_lift and ok_arm):
+        return None
+
+    arm_pos_rel = getattr(arm_state, "position", None)
+    arm_quat_rel = getattr(arm_state, "rotation", None)
+    if arm_pos_rel is None or arm_quat_rel is None:
+        return None
+
+    w, x, y, z = imu.quat
+    R_chassis = R.from_quat([x, y, z, w]).as_matrix()
+    q_lift = info_lift.Position_Actual
+
+    T_world_chassis = np.eye(4)
+    T_world_chassis[:3, :3] = R_chassis
+    T_world_chassis[:3, 3] = [0.0, 0.0, q_lift]
+
+    # Chassis -> left arm mount frame (inverse of T3 in grasp_executor)
+    T3 = np.eye(4)
+    T3[:3, 3] = [-0.5743, -0.1800, -0.1208]
+    T_chassis_arm_mount = np.linalg.inv(T3)
+
+    # Arm mount -> current SDK EEF
+    T_arm_mount_eef = np.eye(4)
+    T_arm_mount_eef[:3, :3] = R.from_quat(arm_quat_rel).as_matrix()
+    T_arm_mount_eef[:3, 3] = arm_pos_rel
+
+    T_world_eef = T_world_chassis @ T_chassis_arm_mount @ T_arm_mount_eef
+    T_world_hand_cam = T_world_eef @ CAM_TO_SDK_EEF_HAND
+    return T_world_hand_cam

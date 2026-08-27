@@ -20,6 +20,7 @@ from .grasp_executor import (
     resolve_grasp_target_hand,
     grasp_object,
 )
+from .camera_pose import compute_hand_camera_pose
 from .config import (
     CAMERA_NAME,
     HAND_CAMERA_NAME,
@@ -152,6 +153,24 @@ def execute_grasp_all_objects_hand(robot, scene_dir, viz_data, dry_run=False):
     The head camera pipeline is NOT used here (see ``log_head_hand_comparison``);
     this path drives the robot exclusively from the wrist camera.
     """
+    import json
+    from pathlib import Path
+
+    meta_path = Path(scene_dir) / "meta_data.json"
+    if not meta_path.exists():
+        logger.error(f"[HandGrasp] meta_data.json not found: {meta_path}")
+        return
+
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+
+    cam_pose = np.asarray(meta.get("camera_pose"), dtype=np.float64)
+    if cam_pose.size != 16:
+        logger.error("[HandGrasp] camera_pose missing/invalid in meta_data.json")
+        return
+    cam_pose = cam_pose.reshape(4, 4)
+    cam_pose_inv = np.linalg.inv(cam_pose)  # world frame -> camera frame
+
     grippers = viz_data.get("grippers", {})
     if EXEC_GRIPPER not in grippers:
         logger.error(f"[HandGrasp] gripper {EXEC_GRIPPER!r} not found in viz_data")
@@ -172,25 +191,31 @@ def execute_grasp_all_objects_hand(robot, scene_dir, viz_data, dry_run=False):
             continue
 
         best_idx = int(np.argmax(conf))
-        T_hand = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp (hand-camera frame)
-        logger.info(
-            f"[HandGrasp] {obj_label}: grasp pos(cam)={T_hand[:3, 3].tolist()}, "
-            f"quat(cam)={R.from_matrix(T_hand[:3, :3]).as_quat().tolist()}, "
-            f"euler_xyz(deg)={R.from_matrix(T_hand[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
-        )
+        T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
+        T_cam = cam_pose_inv @ T_world  # world -> camera frame
 
-        target_pos, target_quat = resolve_grasp_target_hand(robot, T_hand)
+        logger.info(
+            f"[HandGrasp] {obj_label}: pre(world)  pos={T_world[:3, 3].tolist()}, "
+            f"euler_xyz(deg)={R.from_matrix(T_world[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+        )
+        logger.info(
+            f"[HandGrasp] {obj_label}: post(camera) pos={T_cam[:3, 3].tolist()}, "
+            f"euler_xyz(deg)={R.from_matrix(T_cam[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+        )
+        logger.info(f"[HandGrasp] {obj_label}: best conf={conf[best_idx]:.3f}")
+
+        target_pos, target_quat = resolve_grasp_target_hand(robot, T_cam)
         if target_pos is None:
             logger.error(f"[HandGrasp] {obj_label}: failed to resolve target, skipping")
             continue
 
         _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        target_dist = float(np.linalg.norm(target_pos))
         logger.info(
-            f"[HandGrasp] {obj_label}: best conf={conf[best_idx]:.3f}, "
-            f"cam pos={T_hand[:3, 3].tolist()}, "
-            f"target_pos={target_pos.tolist()}, "
+            f"[HandGrasp] {obj_label}: target_pos={target_pos.tolist()}, "
             f"target_quat={target_quat.tolist()}, "
-            f"target_euler_xyz(deg)={_target_euler.tolist()}"
+            f"target_euler_xyz(deg)={_target_euler.tolist()}, "
+            f"target_dist={target_dist:.4f}"
         )
 
         if not dry_run:
@@ -255,13 +280,11 @@ def main(args=None):
         if depth_hd is not None:
             logger.info(f"[Main] HAND depth: shape={depth_hd.shape} dtype={depth_hd.dtype}")
         det_hd = detect_and_segment(rgb_hd, yolo_model, hand_scene)
-        # camera_pose=identity => the hand-camera frame IS the world frame; the
-        # fixed-URDF-offset hand-eye chain in resolve_grasp_target_hand consumes
-        # the grasps directly in that frame, so no FK is needed.
         if mode == "real":
+            hand_cam_pose = compute_hand_camera_pose(robot)
             write_meta_data(
                 hand_scene, robot, len(det_hd),
-                camera_pose=np.eye(4), intrinsics=K_HAND_COLOR,
+                camera_pose=hand_cam_pose, intrinsics=K_HAND_COLOR,
             )
         else:
             logger.info("[Main] Sim mode: keeping existing hand-scene meta_data.json.")
