@@ -212,29 +212,40 @@ def main(args=None):
         return
 
     # Real mode: drive the robot, capture RGB-D into the scene dir, then detect.
-    drive_chassis = getattr(args, "move_chassis", True)
-    robot = H1Robot()
+    robot = None
     try:
-        logger.info("[INIT] Instantiating robot and connecting...")
-        if not robot.robot_connect():
-            logger.info("Failed to connect to robot!")
-            return
+        if mode != "sim":
+            drive_chassis = getattr(args, "move_chassis", True)
+            robot = H1Robot()
+            logger.info("[INIT] Instantiating robot and connecting...")
+            if not robot.robot_connect():
+                logger.info("Failed to connect to robot!")
+                return
 
-        robot.switchControlMode(MotorControlMode.HIGH_LEVEL)
-        robot.robot_init()
+            robot.switchControlMode(MotorControlMode.HIGH_LEVEL)
+            robot.robot_init()
 
-        approach_workspace(robot, drive_chassis=drive_chassis)
-        logger.info("[Main] Workspace reached, please reset the environment!")
-        import pdb; pdb.set_trace()
+            approach_workspace(robot, drive_chassis=drive_chassis)
+            logger.info("[Main] Workspace reached, please reset the environment!")
+            import pdb; pdb.set_trace()
+        else:
+            logger.info("[Main] Sim mode: robot is NOT connected or operated; "
+                        "processing the saved scenes offline.")
 
         logger.info(f"[Main] Capturing head-camera scene into {scene_dir} ...")
         rgb, depth = acquire_rgbd(scene_dir, mode=mode, camera_name=CAMERA_NAME)
         if depth is not None:
             logger.info(f"[Main] HEAD depth: shape={depth.shape} dtype={depth.dtype}")
         detections = detect_and_segment(rgb, yolo_model, scene_dir)
-        write_meta_data(scene_dir, robot, len(detections))
+        if mode == "real":
+            write_meta_data(scene_dir, robot, len(detections))
+        else:
+            logger.info("[Main] Sim mode: keeping existing meta_data.json.")
         summary_head, viz_data_head = generate_and_save_grasps(scene_dir)
-        execute_grasp_all_objects(robot, scene_dir, viz_data_head, dry_run=True)
+        if mode == "real":
+            execute_grasp_all_objects(robot, scene_dir, viz_data_head, dry_run=True)
+        else:
+            logger.info("[Main] Sim mode: skipping head-camera grasp resolution/execution.")
 
         # ---- Left-hand (wrist) camera: the scene that drives grasping ----
         # Sibling of --scene-dir, e.g. ".../real_scene/02_hand_camera".
@@ -247,10 +258,13 @@ def main(args=None):
         # camera_pose=identity => the hand-camera frame IS the world frame; the
         # fixed-URDF-offset hand-eye chain in resolve_grasp_target_hand consumes
         # the grasps directly in that frame, so no FK is needed.
-        write_meta_data(
-            hand_scene, robot, len(det_hd),
-            camera_pose=np.eye(4), intrinsics=K_HAND_COLOR,
-        )
+        if mode == "real":
+            write_meta_data(
+                hand_scene, robot, len(det_hd),
+                camera_pose=np.eye(4), intrinsics=K_HAND_COLOR,
+            )
+        else:
+            logger.info("[Main] Sim mode: keeping existing hand-scene meta_data.json.")
         summary_hand, viz_data_hand = generate_and_save_grasps(hand_scene)
 
         if visualize and viz_data_head:
@@ -267,7 +281,10 @@ def main(args=None):
         # Grasp & place every detected object in sequence using the left-hand
         # camera result (the head result was comparison-only, never executed).
         if viz_data_hand:
-            execute_grasp_all_objects_hand(robot, hand_scene, viz_data_hand)
+            if mode == "real":
+                execute_grasp_all_objects_hand(robot, hand_scene, viz_data_hand)
+            else:
+                logger.info("[Main] Sim mode: skipping hand-camera grasp execution.")
         else:
             logger.warning("[Main] No hand-camera viz_data; nothing to execute.")
         logger.info("[Main] Pipeline finished.")
@@ -279,5 +296,5 @@ def main(args=None):
 
     finally:
         logger.info("[Cleanup] Releasing robot control...")
-        if 'robot' in locals() and hasattr(robot, "robot_deinit"):
+        if robot is not None and hasattr(robot, "robot_deinit"):
             robot.robot_deinit()

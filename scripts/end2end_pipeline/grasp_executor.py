@@ -238,15 +238,15 @@ def resolve_grasp_target_hand(robot, T_obj_cam):
     Returns:
         target_pos, target_quat (full orientation), or (None, None).
     """
-    # T_grasp_in_eef = CAM_TO_SDK_EEF_HAND @ np.asarray(T_obj_cam, dtype=np.float64)
-    # if not np.isfinite(T_grasp_in_eef).all():
-    #     logger.error("[Hand] Invalid grasp pose in hand camera frame.")
-    #     return None, None
-    # logger.info(
-    #     f"[Hand] T_grasp_in_eef pos={T_grasp_in_eef[:3, 3].tolist()}, "
-    #     f"quat={R.from_matrix(T_grasp_in_eef[:3, :3]).as_quat().tolist()}, "
-    #     f"euler_xyz(deg)={R.from_matrix(T_grasp_in_eef[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
-    # )
+    T_grasp_in_eef = CAM_TO_SDK_EEF_HAND @ np.asarray(T_obj_cam, dtype=np.float64)
+    if not np.isfinite(T_grasp_in_eef).all():
+        logger.error("[Hand] Invalid grasp pose in hand camera frame.")
+        return None, None
+    logger.info(
+        f"[Hand] T_grasp_in_eef pos={T_grasp_in_eef[:3, 3].tolist()}, "
+        f"quat={R.from_matrix(T_grasp_in_eef[:3, :3]).as_quat().tolist()}, "
+        f"euler_xyz(deg)={R.from_matrix(T_grasp_in_eef[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+    )
     target_pos, target_quat = _grasp_in_eef_to_sdk_target(T_obj_cam)
     return target_pos, target_quat
 
