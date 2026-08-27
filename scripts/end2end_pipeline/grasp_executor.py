@@ -22,6 +22,68 @@ from .logging_utils import get_logger
 logger = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Left-hand camera hand-eye transform (fixed URDF offset).
+#
+# The left wrist camera (rs/cam_left_wrist, left_jaw_camera_link) is rigidly
+# mounted on the arm, so the change of frame from the camera optical frame to
+# the SDK arm end-effector frame (left_end_effector_link) is a CONSTANT matrix
+# derived only from the Zerith URDF — no IMU/FK/waist needed.
+#
+#   left_jaw_camera_joint     origin xyz=(0.11933, 0.009, 0.060373)
+#                             rpy=(-2.0071, 0, -1.5708)   (extrinsic XYZ; mirrors
+#                             camera_pose._R_NC intrinsic "XYZ" convention)
+#   left_end_effector_joint   origin xyz=(0.1435, 0, 0)
+#
+# W = left_wrist_pitch_link, C = hand camera, E = left_end_effector_link.
+#   W_T_E = [I, (0.1435,0,0)]  ->  E_T_C = inv(W_T_E) @ W_T_C
+# i.e. rotation = W_R_C, translation = t_C - t_E.
+# ---------------------------------------------------------------------------
+CAM_TO_SDK_EEF_HAND = np.eye(4)
+CAM_TO_SDK_EEF_HAND[:3, :3] = R.from_euler(
+    "XYZ", [-2.0071, 0.0, -1.5708], degrees=False
+).as_matrix()
+CAM_TO_SDK_EEF_HAND[:3, 3] = (
+    np.array([0.11933, 0.009, 0.060373]) - np.array([0.1435, 0.0, 0.0])
+)
+
+
+def _grasp_in_eef_to_sdk_target(T_grasp_in_eef):
+    """Convert a grasp base pose (relative to the current SDK eef) into the
+    final SDK end-effector target.
+    """
+    # Coordinate-axis conversion: GraspGenX grasp frame vs. the ZR left-hand
+    # frame (left_gripper.urdf, fingers extend along +X, close along ±Y):
+    #   GraspGenX grasp: Z = approach (finger long axis), X = closing
+    #   ZR hand:         X = approach (finger long axis), Y = closing
+    # So the grasp frame's Z/X/Y must be relabelled to the hand frame's X/Y/Z.
+    # The configured base_rotation gives the proper rotation (det=+1):
+    #   G_T_U columns = [+grasp_Z, -grasp_X, -grasp_Y]
+    # The saved GraspGenX pose is the normalized gripper BASE pose.  The
+    # rotation below is G_T_U (GraspGenX base -> wrist-pitch base); their
+    # origins coincide, hence its translation is zero.
+    T_grasp_to_wrist = np.eye(4)
+    T_grasp_to_wrist[:3, :3] = np.array(
+        [[0.0, -1.0, 0.0],
+         [0.0, 0.0, -1.0],
+         [1.0, 0.0, 0.0]], dtype=np.float64)
+
+    # setArm_high() controls the SDK arm end-effector, not the wrist-pitch
+    # base.  In the Zerith URDF left_end_effector_joint is fixed 0.1435 m
+    # along wrist local +X, plus the ~41.5 mm gripper-center offset.  Omitting
+    # U_T_E leaves the real gripper behind the GraspGenX pose by this distance.
+    T_wrist_to_sdk_eef = np.eye(4)
+    T_wrist_to_sdk_eef[:3, 3] = WRIST_TO_SDK_EEF_OFFSET_M
+
+    T_final = T_grasp_in_eef @ T_grasp_to_wrist @ T_wrist_to_sdk_eef
+    logger.info(f"[Transform] after T4 / SDK EEF target (arm-relative):")
+    logger.info(
+        f"[Transform]   translation={T_final[:3, 3].tolist()}, "
+        f"euler_xyz(deg)={R.from_matrix(T_final[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+    )
+    return T_final[:3, 3], R.from_matrix(T_final[:3, :3]).as_quat()
+
+
 # ================= 4. Grasp computation and execution =================
 def load_pose_matrix(filepath):
     with open(filepath, 'r') as f:
@@ -103,37 +165,7 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
 
     _dbg("before T_grasp_local (T_obj_in_arm)", T_obj_in_arm)
 
-    # Coordinate-axis conversion: GraspGenX grasp frame vs. the ZR left-hand
-    # frame (left_gripper.urdf, fingers extend along +X, close along ±Y):
-    #   GraspGenX grasp: Z = approach (finger long axis), X = closing
-    #   ZR hand:         X = approach (finger long axis), Y = closing
-    # So the grasp frame's Z/X/Y must be relabelled to the hand frame's X/Y/Z.
-    # The configured base_rotation gives the proper rotation (det=+1):
-    #   G_T_U columns = [+grasp_Z, -grasp_X, -grasp_Y]
-    # The closing-axis sign is physically equivalent for this symmetric hand.
-    # The saved GraspGenX pose is the normalized gripper BASE pose.  The
-    # rotation below is G_T_U (GraspGenX base -> wrist-pitch base); their
-    # origins coincide, hence its translation is zero.
-    T_grasp_to_wrist = np.eye(4)
-    T_grasp_to_wrist[:3, :3] = np.array(
-        [[0.0, -1.0, 0.0],
-         [0.0, 0.0, -1.0],
-         [1.0, 0.0, 0.0]], dtype=np.float64)
-
-    # setArm_high() controls the SDK arm end-effector, not the wrist-pitch
-    # base.  In the Zerith URDF left_end_effector_joint is fixed 0.1435 m
-    # along wrist local +X.  Omitting U_T_E leaves the real gripper behind the
-    # GraspGenX pose by roughly this distance.
-    T_wrist_to_sdk_eef = np.eye(4)
-    T_wrist_to_sdk_eef[:3, 3] = WRIST_TO_SDK_EEF_OFFSET_M
-
-    T_final = T_obj_in_arm @ T_grasp_to_wrist @ T_wrist_to_sdk_eef
-
-    _dbg("after T4 / SDK EEF target (arm-relative)", T_final)
-
-    target_pos = T_final[:3, 3]
-    target_quat = R.from_matrix(T_final[:3, :3]).as_quat()
-    return target_pos, target_quat
+    return _grasp_in_eef_to_sdk_target(T_obj_in_arm)
 
 
 def select_arm(robot, pose_path):
@@ -188,6 +220,30 @@ def resolve_grasp_target(robot, T_obj_cam):
     target_pos, target_quat = calculate_target_relative_pose(
         cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_quat_rel, T_obj_cam
     )
+    return target_pos, target_quat
+
+
+def resolve_grasp_target_hand(robot, T_obj_cam):
+    """Resolve a left-arm relative grasp target from the HAND camera.
+
+    The hand (wrist) camera is rigidly mounted on the arm, so unlike the head
+    path this needs no IMU/waist FK: the grasp pose in the camera frame maps to
+    the current-SDK-eef frame by the fixed URDF offset ``CAM_TO_SDK_EEF_HAND``,
+    then to the SDK eef target by the same tail alignment as the head path.
+
+    Args:
+        robot: connected H1Robot instance (unused; kept for a uniform signature).
+        T_obj_cam: 4x4 target (object or grasp) pose in the HAND camera frame.
+
+    Returns:
+        target_pos, target_quat (full orientation), or (None, None).
+    """
+    T_grasp_in_eef = CAM_TO_SDK_EEF_HAND @ np.asarray(T_obj_cam, dtype=np.float64)
+    if not np.isfinite(T_grasp_in_eef).all():
+        logger.error("[Hand] Invalid grasp pose in hand camera frame.")
+        return None, None
+    logger.info("[Hand] Camera-frame grasp -> SDK eef target (fixed URDF offset):")
+    target_pos, target_quat = _grasp_in_eef_to_sdk_target(T_grasp_in_eef)
     return target_pos, target_quat
 
 
