@@ -19,7 +19,13 @@ import json
 import cv2
 import numpy as np
 
-from .config import GRPC_TARGET, CAMERA_NAME, K_COLOR, SCENE_BOUNDS
+from .config import (
+    GRPC_TARGET,
+    CAMERA_NAME,
+    K_COLOR,
+    K_HAND_COLOR,
+    SCENE_BOUNDS,
+)
 from .camera_pose import compute_camera_pose
 from .logging_utils import get_logger
 
@@ -36,11 +42,11 @@ SEG_FILENAME = "seg.png"
 META_FILENAME = "meta_data.json"
 
 
-def acquire_rgbd(scene_dir, mode="sim"):
+def acquire_rgbd(scene_dir, mode="sim", camera_name=CAMERA_NAME):
     """Return (rgb, depth) for the scene, acquiring by mode.
 
     sim:  read rgb.png / depth.npy from scene_dir.
-    real: capture from the head camera and persist rgb.png / depth.npy into
+    real: capture from ``camera_name`` and persist rgb.png / depth.npy into
           scene_dir so a later sim run reads the same data.
     """
     os.makedirs(scene_dir, exist_ok=True)
@@ -66,14 +72,14 @@ def acquire_rgbd(scene_dir, mode="sim"):
         return rgb, depth
 
     # real: capture from camera and persist into the scene directory.
-    logger.info(f"[Perc] Capturing RGB-D from camera ({GRPC_TARGET}) into {scene_dir}")
+    logger.info(f"[Perc] Capturing RGB-D from camera ({GRPC_TARGET}/{camera_name}) into {scene_dir}")
     from camera_client import CameraClient
     client = CameraClient(grpc_target=GRPC_TARGET, enable_depth=True)
     client.start()
     try:
         for _ in range(50):
-            depth_data = client.get_latest_depth(CAMERA_NAME)
-            color_data = client.get_latest_frame(CAMERA_NAME)
+            depth_data = client.get_latest_depth(camera_name)
+            color_data = client.get_latest_frame(camera_name)
             if depth_data is not None and color_data is not None:
                 depth_raw_mm, _ = depth_data
                 color_raw, _ = color_data
@@ -170,28 +176,40 @@ def _save_seg_png(scene_dir, combined_mask):
     return seg_path
 
 
-def write_meta_data(scene_dir, robot, num_objects):
+def write_meta_data(scene_dir, robot, num_objects, camera_pose=None, intrinsics=None):
     """Write meta_data.json for the just-captured scene.
 
     Fields match what graspgenx.utils.scene_loaders expects:
-      intrinsics    : 3x3 K (from config.K_COLOR)
-      camera_pose   : 4x4 camera-to-world (from IMU + motors via compute_camera_pose)
+      intrinsics    : 3x3 K (from config.K_COLOR, or ``intrinsics`` if given)
+      camera_pose   : 4x4 camera-to-world (from IMU + motors via compute_camera_pose,
+                      or ``camera_pose`` if given)
       label_map     : {"ground": 0, "obj_i": 100 + i}  (matches seg.png convention)
       scene_bounds  : workspace bbox (from config.SCENE_BOUNDS)
 
+    Passing ``camera_pose=np.eye(4)`` makes the camera frame the world frame; this
+    is used for the hand camera whose wrist-mounted (fixed URDF offset) hand-eye
+    transform operates directly in the camera frame and needs no world FK.
+
     Returns the written path, or None if the camera pose could not be computed.
     """
-    T = compute_camera_pose(robot)
-    if T is None:
-        logger.error("[Perc] Failed to compute camera pose; skipping meta_data.json.")
-        return None
+    if camera_pose is None:
+        T = compute_camera_pose(robot)
+        if T is None:
+            logger.error("[Perc] Failed to compute camera pose; skipping meta_data.json.")
+            return None
+    else:
+        T = np.asarray(camera_pose, dtype=np.float64)
+
+    K = K_HAND_COLOR if intrinsics is None and camera_pose is not None else K_COLOR
+    if intrinsics is not None:
+        K = np.asarray(intrinsics, dtype=np.float64)
 
     label_map = {"ground": 0}
     for i in range(1, num_objects + 1):
         label_map[f"obj_{i}"] = 100 + i
 
     meta = {
-        "intrinsics": K_COLOR.tolist(),
+        "intrinsics": K.tolist(),
         "camera_pose": T.tolist(),
         "label_map": label_map,
         "scene_bounds": list(SCENE_BOUNDS),
