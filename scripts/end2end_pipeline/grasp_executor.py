@@ -247,7 +247,7 @@ def resolve_grasp_target_hand(robot, T_obj_cam):
         f"quat={R.from_matrix(T_grasp_in_eef[:3, :3]).as_quat().tolist()}, "
         f"euler_xyz(deg)={R.from_matrix(T_grasp_in_eef[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
     )
-    target_pos, target_quat = _grasp_in_eef_to_sdk_target(T_obj_cam)
+    target_pos, target_quat = _grasp_in_eef_to_sdk_target(T_grasp_in_eef)
     return target_pos, target_quat
 
 
