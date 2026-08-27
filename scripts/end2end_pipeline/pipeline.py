@@ -290,16 +290,19 @@ def main(args=None):
             logger.info("[Main] Sim mode: keeping existing hand-scene meta_data.json.")
         summary_hand, viz_data_hand = generate_and_save_grasps(hand_scene)
 
-        if visualize and viz_data_head:
+        if visualize and viz_data_hand:
             # Run visualization on the main thread. It blocks until the user
             # presses Ctrl+C, then returns so the rest of the flow can proceed.
-            # This shows the head-camera scene used only as a comparison.
+            # This shows the actual hand-camera scene driving grasp execution.
+            logger.info(f"[Main] Running hand-camera visualization in main thread for {hand_scene}.")
+            visualize_saved_grasps(hand_scene, viz_data=viz_data_hand, port=8080)
+        elif visualize and viz_data_head:
             logger.info("[Main] Running head-camera visualization in main thread.")
             visualize_saved_grasps(scene_dir, viz_data=viz_data_head, port=8080)
         elif not visualize:
             logger.info("[Main] Visualization disabled by --no-visualize flag.")
         else:
-            logger.warning("[Main] No head viz_data returned; skipping visualization.")
+            logger.warning("[Main] No viz_data returned; skipping visualization.")
 
         # Grasp & place every detected object in sequence using the left-hand
         # camera result (the head result was comparison-only, never executed).
