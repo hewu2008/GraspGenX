@@ -25,6 +25,14 @@ WRIST_TO_SDK_EEF_OFFSET_M = np.array([0.1435 + 0.0415, 0.0, 0.0], dtype=np.float
 # Perception client config
 GRPC_TARGET = "localhost:50051"
 CAMERA_NAME = "rs/cam_high"
+# Left-hand (wrist) camera used for the grasp-execution scene. The wrist camera
+# is rigidly mounted on the arm, so its hand-eye transform is a fixed URDF offset
+# (see grasp_executor.CAM_TO_SDK_EEF_HAND) and needs no FK/IMU/waist.
+HAND_CAMERA_NAME = "rs/cam_left_wrist"
+# Left-hand camera scene is stored as a SIBLING of --scene-dir, named
+# <scene-dir-basename><HAND_CAM_SUFFIX> (e.g. ".../real_scene/02_cam_left_wrist")
+# holding rgb.png / depth.npy / seg.png / meta_data.json.
+HAND_CAM_SUFFIX = "_cam_left_wrist"
 ZMQ_SERVER_ADDR = "tcp://192.168.3.28:5555"
 CLIENT_DEBUG_DIR = "./client_debug"
 REGISTER_ITERATIONS = 5
@@ -37,6 +45,15 @@ TARGET_GRIPPER_MOTOR = EtherCAT_Motor_Index.MOTOR_LEFT_ARM_8
 K_COLOR = np.array([
     [607.62, 0.00, 329.68],
     [0.00, 608.40, 243.36],
+    [0.00, 0.00, 1.00],
+], dtype=np.float64)
+
+# Left-hand wrist camera intrinsics (pinhole K), from the camera service's live
+# intrinsics (camera_intrinsics.yaml, rs/cam_left_wrist color stream). Mirrors the
+# K_COLOR convention (color-stream fx/fy/ppx/ppy) used by the head camera.
+K_HAND_COLOR = np.array([
+    [394.747, 0.00, 322.405],
+    [0.00, 394.532, 238.677],
     [0.00, 0.00, 1.00],
 ], dtype=np.float64)
 
