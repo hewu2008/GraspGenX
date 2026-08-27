@@ -173,6 +173,11 @@ def execute_grasp_all_objects_hand(robot, scene_dir, viz_data, dry_run=False):
 
         best_idx = int(np.argmax(conf))
         T_hand = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp (hand-camera frame)
+        logger.info(
+            f"[HandGrasp] {obj_label}: grasp pos(cam)={T_hand[:3, 3].tolist()}, "
+            f"quat(cam)={R.from_matrix(T_hand[:3, :3]).as_quat().tolist()}, "
+            f"euler_xyz(deg)={R.from_matrix(T_hand[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+        )
 
         target_pos, target_quat = resolve_grasp_target_hand(robot, T_hand)
         if target_pos is None:
