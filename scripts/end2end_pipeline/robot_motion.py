@@ -185,23 +185,16 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
         f"quaternion={target_abs_quat.tolist()}"
     )
 
-    # Stage 1: pre-grasp waypoint, 10 cm behind the target along -approach.
+    # Stage 1+2 (merged): move to the pre-grasp waypoint while simultaneously
+    # rotating to the grasp orientation.
     pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
-    logger.info(f"[Move] Pre-grasp waypoint: {pre_xyz}")
+    logger.info(
+        f"[Move] Pre-grasp waypoint (with grasp orientation): "
+        f"pos={pre_xyz}, quat={target_abs_quat.tolist()}"
+    )
     import pdb; pdb.set_trace()
     _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
-                      pre_xyz, arm_quat_rel, 2)
-    time.sleep(0.5)
-
-    # Stage 2: rotate in place to the grasp orientation.
-    logger.info(f"[Move] Orient to grasp orientation: {target_abs_quat.tolist()}")
-    import pdb; pdb.set_trace()
-    _, arm_state = robot.getHandRelative(TARGET_ARM)
-    arm_pos_rel = getattr(arm_state, "position", None)
-    arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
-                      [arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]],
-                      target_abs_quat.tolist(), 1)
+                      pre_xyz, target_abs_quat.tolist(), 2)
     time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
