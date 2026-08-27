@@ -45,6 +45,10 @@ def calculate_target_relative_pose(cam_pos_rel, cam_quat_rel, arm_pos_rel, arm_q
     T_obj_in_arm = T4 @ T3 @ T2 @ T1 @ T_obj_cam maps the target pose from the
     camera frame into the left-arm relative frame about the arm mount.
     """
+    logger.info("[Arm] runtime inputs: "
+                f"cam_pos_rel={list(cam_pos_rel)}, cam_quat_rel={list(cam_quat_rel)}, "
+                f"arm_pos_rel={list(arm_pos_rel)}, arm_quat_rel={list(arm_quat_rel)}")
+
     # T1: head camera pose relative to its own zero position (incremental neck
     # motion only; the waist/body angles are NOT included here).
     T1 = np.eye(4)
