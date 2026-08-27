@@ -81,9 +81,13 @@ def acquire_rgbd(scene_dir, mode="sim", camera_name=CAMERA_NAME):
             depth_data = client.get_latest_depth(camera_name)
             color_data = client.get_latest_frame(camera_name)
             if depth_data is not None and color_data is not None:
-                depth_raw_mm, _ = depth_data
+                depth_raw, _ = depth_data
                 color_raw, _ = color_data
-                depth_m = depth_raw_mm.astype(np.float32) / 1000.0
+                # Depth unit differs per camera: the head camera stream
+                # reports millimetres (/1000 -> m), while the wrist camera
+                # reports 0.1 mm (/10000 -> m).
+                depth_scale = 1000.0 if camera_name == CAMERA_NAME else 10000.0
+                depth_m = depth_raw.astype(np.float32) / depth_scale
                 cv2.imwrite(rgb_path, color_raw)
                 np.save(depth_path, depth_m)
                 logger.info(f"[Perc] Captured and saved {rgb_path} and {depth_path}")
