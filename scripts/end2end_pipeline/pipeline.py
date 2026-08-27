@@ -8,9 +8,24 @@ from scipy.spatial.transform import Rotation as R
 from lib_h1_sdk_python import H1Robot, MotorControlMode
 
 from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready_pose
-from .perception import acquire_rgbd, detect_and_segment, write_meta_data, generate_and_save_grasps
+from .perception import (
+    acquire_rgbd,
+    detect_and_segment,
+    write_meta_data,
+    generate_and_save_grasps,
+)
 from .grasp_visualization import visualize_saved_grasps
-from .grasp_executor import resolve_grasp_target, grasp_object
+from .grasp_executor import (
+    resolve_grasp_target,
+    resolve_grasp_target_hand,
+    grasp_object,
+)
+from .config import (
+    CAMERA_NAME,
+    HAND_CAMERA_NAME,
+    HAND_CAM_SUFFIX,
+    K_HAND_COLOR,
+)
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -38,7 +53,7 @@ def approach_workspace(robot, drive_chassis=True):
         time.sleep(2.0)
 
 
-def execute_grasp_all_objects(robot, scene_dir, viz_data):
+def execute_grasp_all_objects(robot, scene_dir, viz_data, dry_run=False):
     """Grasp and place every detected object in sequence using the left gripper.
 
     For each object, the top-1 conf grasp pose (world frame) is pulled from
@@ -123,10 +138,61 @@ def execute_grasp_all_objects(robot, scene_dir, viz_data):
             f"target_dist={target_dist:.4f}"
         )
         
-        grasp_object(robot, target_pos, target_quat)
+        if not dry_run:
+            grasp_object(robot, target_pos, target_quat)
         logger.info(f"[Grasp] {obj_label}: grasped & placed.")
 
     logger.info("[Grasp] All objects grasped & placed.")
+
+
+def execute_grasp_all_objects_hand(robot, scene_dir, viz_data, dry_run=False):
+    """Grasp and place every detected object in sequence using the LEFT-HAND
+    camera result and the fixed-URDF-offset hand-eye transform.
+
+    The head camera pipeline is NOT used here (see ``log_head_hand_comparison``);
+    this path drives the robot exclusively from the wrist camera.
+    """
+    grippers = viz_data.get("grippers", {})
+    if EXEC_GRIPPER not in grippers:
+        logger.error(f"[HandGrasp] gripper {EXEC_GRIPPER!r} not found in viz_data")
+        return
+    grasps_data = grippers[EXEC_GRIPPER].get("grasps", {})
+    if not grasps_data:
+        logger.info("[HandGrasp] No grasps to execute for the left-hand camera.")
+        return
+
+    labels = list(grasps_data.keys())
+    logger.info(f"[HandGrasp] Picking {len(labels)} object(s) in order: {labels}")
+    for obj_label in labels:
+        data = grasps_data[obj_label]
+        grasps = data.get("grasps")
+        conf = data.get("conf")
+        if grasps is None or len(grasps) == 0:
+            logger.warning(f"[HandGrasp] {obj_label}: no grasps, skipping")
+            continue
+
+        best_idx = int(np.argmax(conf))
+        T_hand = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp (hand-camera frame)
+
+        target_pos, target_quat = resolve_grasp_target_hand(robot, T_hand)
+        if target_pos is None:
+            logger.error(f"[HandGrasp] {obj_label}: failed to resolve target, skipping")
+            continue
+
+        _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        logger.info(
+            f"[HandGrasp] {obj_label}: best conf={conf[best_idx]:.3f}, "
+            f"cam pos={T_hand[:3, 3].tolist()}, "
+            f"target_pos={target_pos.tolist()}, "
+            f"target_quat={target_quat.tolist()}, "
+            f"target_euler_xyz(deg)={_target_euler.tolist()}"
+        )
+
+        if not dry_run:
+            grasp_object(robot, target_pos, target_quat)
+        logger.info(f"[HandGrasp] {obj_label}: grasped & placed.")
+
+    logger.info("[HandGrasp] All objects grasped & placed.")
 
 
 def main(args=None):
@@ -156,27 +222,49 @@ def main(args=None):
         logger.info("[Main] Workspace reached, please reset the environment!")
         import pdb; pdb.set_trace()
 
-        rgb, depth = acquire_rgbd(scene_dir, mode=mode)
+        logger.info(f"[Main] Capturing head-camera scene into {scene_dir} ...")
+        rgb, depth = acquire_rgbd(scene_dir, mode=mode, camera_name=CAMERA_NAME)
         if depth is not None:
-            logger.info(f"[Main] depth: shape={depth.shape} dtype={depth.dtype}")
+            logger.info(f"[Main] HEAD depth: shape={depth.shape} dtype={depth.dtype}")
         detections = detect_and_segment(rgb, yolo_model, scene_dir)
         write_meta_data(scene_dir, robot, len(detections))
-        summary, viz_data = generate_and_save_grasps(scene_dir)
+        summary_head, viz_data_head = generate_and_save_grasps(scene_dir)
+        execute_grasp_all_objects(robot, scene_dir, viz_data_head, dry_run=True)
 
-        if visualize and viz_data:
+        # ---- Left-hand (wrist) camera: the scene that drives grasping ----
+        # Sibling of --scene-dir, e.g. ".../real_scene/02_hand_camera".
+        hand_scene = scene_dir + HAND_CAM_SUFFIX
+        logger.info(f"[Main] Capturing left-hand camera scene into {hand_scene} ...")
+        rgb_hd, depth_hd = acquire_rgbd(hand_scene, mode=mode, camera_name=HAND_CAMERA_NAME)
+        if depth_hd is not None:
+            logger.info(f"[Main] HAND depth: shape={depth_hd.shape} dtype={depth_hd.dtype}")
+        det_hd = detect_and_segment(rgb_hd, yolo_model, hand_scene)
+        # camera_pose=identity => the hand-camera frame IS the world frame; the
+        # fixed-URDF-offset hand-eye chain in resolve_grasp_target_hand consumes
+        # the grasps directly in that frame, so no FK is needed.
+        write_meta_data(
+            hand_scene, robot, len(det_hd),
+            camera_pose=np.eye(4), intrinsics=K_HAND_COLOR,
+        )
+        summary_hand, viz_data_hand = generate_and_save_grasps(hand_scene)
+
+        if visualize and viz_data_head:
             # Run visualization on the main thread. It blocks until the user
             # presses Ctrl+C, then returns so the rest of the flow can proceed.
-            logger.info("[Main] Running visualization in main thread.")
-            visualize_saved_grasps(scene_dir, viz_data=viz_data, port=8080)
+            # This shows the head-camera scene used only as a comparison.
+            logger.info("[Main] Running head-camera visualization in main thread.")
+            visualize_saved_grasps(scene_dir, viz_data=viz_data_head, port=8080)
         elif not visualize:
             logger.info("[Main] Visualization disabled by --no-visualize flag.")
         else:
-            logger.warning("[Main] No viz_data returned; skipping visualization.")
+            logger.warning("[Main] No head viz_data returned; skipping visualization.")
 
-        # ============ Follow-up steps after visualization ============
-        # Grasp & place every detected object in sequence with the left gripper.
-        if viz_data:
-            execute_grasp_all_objects(robot, scene_dir, viz_data)
+        # Grasp & place every detected object in sequence using the left-hand
+        # camera result (the head result was comparison-only, never executed).
+        if viz_data_hand:
+            execute_grasp_all_objects_hand(robot, hand_scene, viz_data_hand)
+        else:
+            logger.warning("[Main] No hand-camera viz_data; nothing to execute.")
         logger.info("[Main] Pipeline finished.")
 
     except KeyboardInterrupt:
