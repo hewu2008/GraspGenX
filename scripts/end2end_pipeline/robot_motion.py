@@ -187,7 +187,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
 
     # Stage 1+2 (merged): move to the pre-grasp waypoint while simultaneously
     # rotating to the grasp orientation.
-    pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
+    pre_xyz = (target_abs - 0.15 * approach_dir).tolist()
     logger.info(
         f"[Move] Pre-grasp waypoint (with grasp orientation): "
         f"pos={pre_xyz}, quat={target_abs_quat.tolist()}"
