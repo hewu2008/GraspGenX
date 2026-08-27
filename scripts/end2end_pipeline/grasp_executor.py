@@ -62,6 +62,10 @@ def _grasp_in_eef_to_sdk_target(T_grasp_in_eef):
     # The saved GraspGenX pose is the normalized gripper BASE pose.  The
     # rotation below is G_T_U (GraspGenX base -> wrist-pitch base); their
     # origins coincide, hence its translation is zero.
+    logger.info(
+        f"[_grasp_in_eef_to_sdk_target]   translation={T_grasp_in_eef[:3, 3].tolist()}, "
+        f"euler_xyz(deg)={R.from_matrix(T_grasp_in_eef[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+    )
     T_grasp_to_wrist = np.eye(4)
     T_grasp_to_wrist[:3, :3] = np.array(
         [[0.0, -1.0, 0.0],
