@@ -15,6 +15,7 @@ from .config import (
     WAIST_RELEASE_Z,
     GRIPPER_RELEASE_WAIT,
     WRIST_TO_SDK_EEF_OFFSET_M,
+    GRASP_TRIM_OFFSET_M,
 )
 from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
 from .logging_utils import get_logger
@@ -77,7 +78,7 @@ def _grasp_in_eef_to_sdk_target(T_grasp_in_eef):
     # along wrist local +X, plus the ~41.5 mm gripper-center offset.  Omitting
     # U_T_E leaves the real gripper behind the GraspGenX pose by this distance.
     T_wrist_to_sdk_eef = np.eye(4)
-    T_wrist_to_sdk_eef[:3, 3] = WRIST_TO_SDK_EEF_OFFSET_M
+    T_wrist_to_sdk_eef[:3, 3] = WRIST_TO_SDK_EEF_OFFSET_M + GRASP_TRIM_OFFSET_M
 
     T_final = T_grasp_in_eef @ T_grasp_to_wrist @ T_wrist_to_sdk_eef
     logger.info(f"[Transform] after T4 / SDK EEF target (arm-relative):")
