@@ -142,6 +142,11 @@ def execute_grasp_all_objects_wrist(
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
 
+        # Post-process target_quat: retain only the first Euler dimension (rotation around approach axis X)
+        # and zero out pitch/yaw tilt deviations for vertical straight approach:
+        target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        target_quat = R.from_euler("xyz", [target_euler[0], 0.0, 0.0], degrees=True).as_quat()
+
         _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
         target_dist = float(np.linalg.norm(target_pos))
         logger.info(
