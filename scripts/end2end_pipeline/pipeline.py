@@ -154,21 +154,6 @@ def execute_grasp_all_objects_wrist(
 
     logger.info(f"[Grasp] All {target_description}(s) grasped & placed.")
 
-
-def execute_grasp_all_objects_hand(robot, scene_dir, viz_data, dry_run=False):
-    """Backward compatibility wrapper for left hand grasp."""
-    return execute_grasp_all_objects_wrist(
-        robot=robot,
-        scene_dir=scene_dir,
-        viz_data=viz_data,
-        gripper_name=LEFT_GRIPPER_NAME,
-        arm=LEFT_ARM,
-        gripper_motor=LEFT_GRIPPER_MOTOR,
-        dry_run=dry_run,
-        target_description="L-pipe (left arm)",
-    )
-
-
 def main(args=None):
     logger.info(f"[Main] Args: {args}")
     mode = getattr(args, "mode", "real")
