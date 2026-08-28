@@ -99,8 +99,23 @@ def acquire_rgbd(scene_dir, mode="sim", camera_name=CAMERA_NAME):
         client.stop()
 
 
-def detect_and_segment(rgb, yolo_model, scene_dir):
+def is_class_allowed(cls_name, allowed_classes):
+    """Check if cls_name matches any entry in allowed_classes."""
+    if allowed_classes is None:
+        return True
+    cls_clean = str(cls_name).lower().replace("-", "_").replace(" ", "_")
+    for allowed in allowed_classes:
+        allowed_clean = str(allowed).lower().replace("-", "_").replace(" ", "_")
+        if cls_clean == allowed_clean or allowed_clean in cls_clean or cls_clean in allowed_clean:
+            return True
+    return False
+
+
+def detect_and_segment(rgb, yolo_model, scene_dir, allowed_classes=None):
     """Run YOLO instance segmentation; return detections and save seg.png.
+
+    Optionally filters instances by ``allowed_classes`` (e.g. {'elbow_pipe'} or
+    {'interior_door_handle'}).
 
     Returns a list of dicts: ``{bbox, mask, class_id, class_name, conf}``.
     The combined instance-label mask is written to ``<scene_dir>/seg.png``.
@@ -141,20 +156,28 @@ def detect_and_segment(rgb, yolo_model, scene_dir):
     detections = []
     combined = np.zeros((h, w), dtype=np.uint8)
     for idx in range(len(masks_data)):
+        cls_id = int(boxes.cls[idx])
+        conf = float(boxes.conf[idx])
+        cls_name = class_names.get(cls_id, str(cls_id))
+
+        if allowed_classes is not None and not is_class_allowed(cls_name, allowed_classes):
+            logger.info(
+                f"[Perc] [{idx}] {cls_name} (conf={conf:.2f}) skipped (not in allowed_classes: {allowed_classes})"
+            )
+            continue
+
         mask_resized = cv2.resize(
             masks_data[idx].astype(np.float32),
             (w, h),
             interpolation=cv2.INTER_LINEAR,
         )
         mask = (mask_resized > 0.5).astype(np.uint8)
-        cls_id = int(boxes.cls[idx])
-        conf = float(boxes.conf[idx])
         xyxy = boxes.xyxy[idx].cpu().numpy()
         bbox = [int(v) for v in xyxy]
-        cls_name = class_names.get(cls_id, str(cls_id))
 
+        kept_idx = len(detections)
         # label_map convention: obj_1=101, obj_2=102, ...
-        combined[mask == 1] = 101 + idx
+        combined[mask == 1] = 101 + kept_idx
         detections.append({
             "bbox": bbox,
             "mask": mask,
@@ -163,12 +186,12 @@ def detect_and_segment(rgb, yolo_model, scene_dir):
             "conf": conf,
         })
         logger.info(
-            f"[Perc] [{idx}] {cls_name} conf={conf:.2f} bbox={bbox}"
+            f"[Perc] [kept obj_{kept_idx + 1}] {cls_name} conf={conf:.2f} bbox={bbox}"
         )
 
     seg_path = _save_seg_png(scene_dir, combined)
     logger.info(
-        f"[Perc] {len(detections)} instance(s); seg saved to {seg_path}"
+        f"[Perc] {len(detections)} instance(s) matching allowed_classes={allowed_classes}; seg saved to {seg_path}"
     )
     return detections
 

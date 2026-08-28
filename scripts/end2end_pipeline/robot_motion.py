@@ -120,12 +120,12 @@ def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
     logger.info(" -> Arms reached target.")
 
 
-def move_arm_relative(robot, dx, dy, dz):
+def move_arm_relative(robot, dx, dy, dz, arm=TARGET_ARM):
     """Relative retract move for the target arm."""
     duration_arm = 2.0
     steps_arm = int(duration_arm * RATE_HZ)
 
-    _, arm_state = robot.getHandRelative(TARGET_ARM)
+    _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     start_x, start_y, start_z = arm_pos_rel[0], arm_pos_rel[1], arm_pos_rel[2]
@@ -150,19 +150,19 @@ def move_arm_relative(robot, dx, dy, dz):
         target_end_pose.position = [x, y, z]
         target_end_pose.rotation = [interp_quat[0], interp_quat[1], interp_quat[2], interp_quat[3]]
 
-        robot.setArm_high(TARGET_ARM, target_end_pose)
+        robot.setArm_high(arm, target_end_pose)
         time.sleep(DT)
 
     time.sleep(0.5)
     logger.info(" -> Reached target.")
 
 
-def move_arm_to_grasp(robot, target_pos, target_quat):
+def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     """Three-stage approach: pre-grasp, orient, straight-line approach.
 
     target_pos/target_quat form the target transform relative to the current
     SDK end-effector. Flow:
-      1. move to a pre-grasp point 10 cm behind the target, along the opposite
+      1. move to a pre-grasp point 15 cm behind the target, along the opposite
          of the grasp approach axis (hand +X / finger long axis);
       2. rotate in place to the grasp orientation;
       3. approach straight along the grasp axis to the target point.
@@ -170,7 +170,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
     Returns the absolute (SDK zero-frame) pre-grasp waypoint so the caller can
     retract back to it after grasping.
     """
-    _, arm_state = robot.getHandRelative(TARGET_ARM)
+    _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
 
@@ -193,17 +193,17 @@ def move_arm_to_grasp(robot, target_pos, target_quat):
         f"pos={pre_xyz}, quat={target_abs_quat.tolist()}"
     )
     import pdb; pdb.set_trace()
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+    _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
                       pre_xyz, target_abs_quat.tolist(), 2)
     time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
     logger.info(f"[Move] Approach to grasp pose: {target_abs.tolist()}")
     import pdb; pdb.set_trace()
-    _, arm_state = robot.getHandRelative(TARGET_ARM)
+    _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm_to_pose(robot, TARGET_ARM, arm_pos_rel, arm_quat_rel,
+    _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
                       target_abs.tolist(), target_abs_quat.tolist(), 1)
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
