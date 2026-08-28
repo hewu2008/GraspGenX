@@ -13,9 +13,8 @@ from .robot_motion import move_chassis, prepare_robot_posture, move_arm_to_ready
 from .perception import (
     acquire_rgbd,
     detect_and_segment,
-    write_meta_data,
-    generate_and_save_grasps,
 )
+from .grasp_generation import generate_and_save_grasps, write_meta_data
 from .grasp_visualization import visualize_saved_grasps
 from .grasp_executor import (
     resolve_grasp_target_hand,
