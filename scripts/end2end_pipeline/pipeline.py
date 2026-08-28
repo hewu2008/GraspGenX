@@ -123,10 +123,30 @@ def execute_grasp_all_objects_wrist(
             logger.warning(f"[Grasp] {obj_label}: no grasps, skipping")
             continue
 
-        best_idx = int(np.argmax(conf))
-        T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
-        T_cam = cam_pose_inv @ T_world  # world -> camera frame
+        grasps = np.asarray(grasps, dtype=np.float64)
+        conf = np.asarray(conf, dtype=np.float32)
 
+        # Transform all grasps to the camera frame:
+        T_cam_all = cam_pose_inv @ grasps  # (K, 4, 4) in camera frame
+
+        # Compute rotation angle of each grasp in camera frame, accounting for
+        # the 180-deg symmetry of parallel-jaw grippers around the approach axis (Z).
+        r_cam = R.from_matrix(T_cam_all[:, :3, :3])
+        r_flip = r_cam * R.from_euler("z", 180, degrees=True)
+        rot_angles = np.minimum(r_cam.magnitude(), r_flip.magnitude())  # radians
+
+        # Sort candidate grasps by camera rotation angle ascending:
+        sorted_indices = np.argsort(rot_angles)
+        best_idx = int(sorted_indices[0])
+
+        T_world = grasps[best_idx]  # grasp pose (world frame)
+        T_cam = T_cam_all[best_idx]  # grasp pose (camera frame)
+        min_angle_deg = float(np.rad2deg(rot_angles[best_idx]))
+
+        logger.info(
+            f"[Grasp] {obj_label}: sorted {len(grasps)} grasps by camera rotation angle. "
+            f"Selected best idx={best_idx} with min rotation angle={min_angle_deg:.2f} deg (conf={conf[best_idx]:.3f})"
+        )
         logger.info(
             f"[Grasp] {obj_label}: pre(world)  pos={T_world[:3, 3].tolist()}, "
             f"euler_xyz(deg)={R.from_matrix(T_world[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
