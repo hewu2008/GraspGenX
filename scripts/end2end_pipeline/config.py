@@ -54,8 +54,8 @@ LEFT_GRIPPER_NAME = "zerith_left_gripper"
 RIGHT_GRIPPER_NAME = "zerith_right_gripper"
 
 # Target object classes per arm/camera
-LEFT_TARGET_CLASSES = {"elbow_pipe", "elbow", "pipe", "l_pipe", "l形弯管", "弯管"}
-RIGHT_TARGET_CLASSES = {"interior_door_handle", "door_handle", "handle", "门把手", "把手"}
+LEFT_TARGET_CLASSES = {"elbow_pipe"}
+RIGHT_TARGET_CLASSES = {"interior_door_handle"}
 
 # Backward compatibility defaults
 TARGET_ARM = LEFT_ARM
