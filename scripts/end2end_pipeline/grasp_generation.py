@@ -35,7 +35,7 @@ GRASP_MOE_SKIP_OBB_RULE = "auto"
 GRASP_MOE_OBB_DENSITY = "dense"
 GRASP_MOE_OBB_POSITION_SPACING_CM = 1.0
 GRASP_MIN_OBJ_POINTS = 100
-GRASP_COLLISION_THRESHOLD = 0.002
+GRASP_COLLISION_THRESHOLD = 0.015
 # Camera-frame orientation filter: keep only grasps whose pitch/roll (folded
 # to [-90,90]) stay within +/-GRASP_MAX_PITCH_DEG/GRASP_MAX_ROLL_DEG and whose
 # yaw stays within +/-GRASP_MAX_YAW_DEG. Disable with False to keep all poses.
