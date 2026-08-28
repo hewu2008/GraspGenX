@@ -106,13 +106,18 @@ def compute_camera_pose(robot):
 
 
 def compute_hand_camera_pose(robot, arm=None):
-    """Compute the 4x4 wrist camera-to-world transform independently.
+    """Compute the 4x4 wrist camera-to-world transform.
 
-    Chain (direct from chassis, independent of head camera/neck motors):
-        T_world_chassis     = [R_chassis (IMU), t_lift]
-        T_chassis_arm_mount = inv(T3)  (left/right-arm chassis mounting offset)
-        T_arm_mount_eef     = arm_pose_rel (from getHandRelative)
-        T_world_hand_cam    = T_world_chassis @ T_chassis_arm_mount @ T_arm_mount_eef @ CAM_TO_SDK_EEF_HAND
+    Chain:
+        dipan_link [chassis, IMU]
+          -> daogui_link     [lift, prismatic Z: q_lift]
+          -> body_pitch_link [body_pitch: R_y(q_bp)]
+          -> body_yaw_link   [body_yaw:   R_z(q_by)]
+          -> arm_mount_link  [inv(T3): body_yaw -> arm base mounting frame]
+          -> end_effector    [arm_pose_rel: from getHandRelative(arm)]
+          -> wrist_camera    [CAM_TO_SDK_EEF_HAND: from URDF wrist camera to EEF]
+
+        T_world_hand_cam = T_world_body @ T_body_arm_mount @ T_arm_mount_eef @ CAM_TO_SDK_EEF_HAND
     """
     from lib_h1_sdk_python import ArmAction
     from .config import TARGET_ARM
@@ -123,8 +128,10 @@ def compute_hand_camera_pose(robot, arm=None):
 
     ok_imu, imu = robot.getIMU_State()
     ok_lift, info_lift = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_LIFT)
+    ok_bp, info_bp = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_WAIST_DOWN)
+    ok_by, info_by = robot.getMotorState(EtherCAT_Motor_Index.MOTOR_WAIST_UP)
     ok_arm, arm_state = robot.getHandRelative(arm)
-    if not (ok_imu and ok_lift and ok_arm):
+    if not (ok_imu and ok_lift and ok_bp and ok_by and ok_arm):
         return None
 
     arm_pos_rel = getattr(arm_state, "position", None)
@@ -135,24 +142,33 @@ def compute_hand_camera_pose(robot, arm=None):
     w, x, y, z = imu.quat
     R_chassis = R.from_quat([x, y, z, w]).as_matrix()
     q_lift = info_lift.Position_Actual
+    q_bp = info_bp.Position_Actual
+    q_by = info_by.Position_Actual
 
-    T_world_chassis = np.eye(4)
-    T_world_chassis[:3, :3] = R_chassis
-    T_world_chassis[:3, 3] = [0.0, 0.0, q_lift]
+    R_body_pitch = R.from_euler("Y", q_bp, degrees=False).as_matrix()
+    R_body_yaw = R.from_euler("Z", q_by, degrees=False).as_matrix()
+    R_body = R_chassis @ R_body_pitch @ R_body_yaw
 
-    # Chassis -> arm mount frame (inverse of T3 in grasp_executor)
+    t_lift = np.array([0.0, 0.0, q_lift])
+    t_body_yaw = t_lift + R_chassis @ (_O_BP + R_body_pitch @ _O_BY)
+
+    T_world_body = np.eye(4)
+    T_world_body[:3, :3] = R_body
+    T_world_body[:3, 3] = t_body_yaw
+
+    # Body (body_yaw_link) -> arm mount frame (inverse of T3 in grasp_executor)
     T3 = np.eye(4)
     if arm == ArmAction.LEFT_ARM:
         T3[:3, 3] = [-0.5743, -0.1800, -0.1208]
     else:
         T3[:3, 3] = [-0.5743, 0.1800, -0.1208]
-    T_chassis_arm_mount = np.linalg.inv(T3)
+    T_body_arm_mount = np.linalg.inv(T3)
 
     # Arm mount -> current SDK EEF
     T_arm_mount_eef = np.eye(4)
     T_arm_mount_eef[:3, :3] = R.from_quat(arm_quat_rel).as_matrix()
     T_arm_mount_eef[:3, 3] = arm_pos_rel
 
-    T_world_eef = T_world_chassis @ T_chassis_arm_mount @ T_arm_mount_eef
+    T_world_eef = T_world_body @ T_body_arm_mount @ T_arm_mount_eef
     T_world_hand_cam = T_world_eef @ CAM_TO_SDK_EEF_HAND
     return T_world_hand_cam
