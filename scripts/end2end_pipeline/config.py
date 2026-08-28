@@ -22,7 +22,7 @@ GRIPPER_RELEASE_WAIT = 2.0  # Wait for the gripper to fully open before restorin
 WRIST_TO_SDK_EEF_OFFSET_M = np.array([0.1435, 0.0, 0.0], dtype=np.float64)
 
 # Optional fine-tuning grasp translation offset [dx, dy, dz] in meters (gripper local frame: +X=depth/approach, +Y=closing, +Z=normal).
-GRASP_TRIM_OFFSET_M = np.array([0.02, 0.0, 0.0], dtype=np.float64)
+GRASP_TRIM_OFFSET_M = np.array([0.03, 0.0, 0.0], dtype=np.float64)
 
 # Perception client config
 GRPC_TARGET = "localhost:50051"
