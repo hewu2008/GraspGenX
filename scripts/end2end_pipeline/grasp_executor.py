@@ -261,7 +261,6 @@ def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=T
     logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
 
     logger.info(f"[E] Moving arm ({arm}) to grasp target smoothly...")
-    pdb.set_trace()
     pre_grasp_xyz = move_arm_to_grasp(robot, target_pos, target_quat, arm=arm)
 
     logger.info(f"[F] Closing gripper ({gripper_motor}) to grasp...")
