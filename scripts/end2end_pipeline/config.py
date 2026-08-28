@@ -57,6 +57,10 @@ RIGHT_GRIPPER_NAME = "zerith_right_gripper"
 LEFT_TARGET_CLASSES = {"elbow_pipe"}
 RIGHT_TARGET_CLASSES = {"interior_door_handle"}
 
+# Viser visualization ports per hand
+LEFT_VIZ_PORT = 8080
+RIGHT_VIZ_PORT = 8081
+
 # Backward compatibility defaults
 TARGET_ARM = LEFT_ARM
 TARGET_GRIPPER_MOTOR = LEFT_GRIPPER_MOTOR

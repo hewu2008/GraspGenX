@@ -33,6 +33,8 @@ from .config import (
     RIGHT_GRIPPER_NAME,
     LEFT_TARGET_CLASSES,
     RIGHT_TARGET_CLASSES,
+    LEFT_VIZ_PORT,
+    RIGHT_VIZ_PORT,
     K_LEFT_HAND_COLOR,
     K_RIGHT_HAND_COLOR,
 )
@@ -154,6 +156,129 @@ def execute_grasp_all_objects_wrist(
 
     logger.info(f"[Grasp] All {target_description}(s) grasped & placed.")
 
+def connect_robot(mode, drive_chassis):
+    """Connect, initialize and move the robot to the observation posture.
+
+    Returns ``(robot, ok)``:
+      - sim mode: (None, True) -- no robot is touched, scenes are processed offline.
+      - real mode: (H1Robot, True) on success; (H1Robot, False) if connection failed
+        (the instance is returned so the caller's cleanup can still deinit it).
+    """
+    if mode == "sim":
+        logger.info("[Main] Sim mode: robot is NOT connected or operated; "
+                    "processing the saved scenes offline.")
+        return None, True
+
+    robot = H1Robot()
+    logger.info("[INIT] Instantiating robot and connecting...")
+    if not robot.robot_connect():
+        logger.info("Failed to connect to robot!")
+        return robot, False
+
+    robot.switchControlMode(MotorControlMode.HIGH_LEVEL)
+    robot.robot_init()
+
+    approach_workspace(robot, drive_chassis=drive_chassis)
+    logger.info("[Main] Workspace reached, please reset the environment!")
+    
+    import pdb; pdb.set_trace()
+    return robot, True
+
+
+def run_wrist_camera_pipeline(
+    robot, mode, yolo_model, scene_dir, *,
+    suffix, camera_name, allowed_classes, k_color, gripper_name, arm,
+    target_description,
+):
+    """One wrist-camera arm pipeline: capture, detect, write meta, generate grasps.
+
+    Returns ``(scene, viz_data)`` where ``scene = scene_dir + suffix``.
+    """
+    scene = scene_dir + suffix
+    logger.info(f"[Main] === {target_description} ===")
+    logger.info(f"[Main] Capturing {camera_name} scene into {scene} ...")
+    rgb, depth = acquire_rgbd(scene, mode=mode, camera_name=camera_name)
+    if depth is not None:
+        logger.info(f"[Main] {camera_name} depth: shape={depth.shape} dtype={depth.dtype}")
+
+    detections = detect_and_segment(rgb, yolo_model, scene, allowed_classes=allowed_classes)
+
+    if mode == "real":
+        cam_pose = compute_hand_camera_pose(robot, arm=arm)
+        write_meta_data(
+            scene, robot, len(detections),
+            camera_pose=cam_pose, intrinsics=k_color,
+        )
+    else:
+        logger.info(f"[Main] Sim mode: keeping existing {scene} meta_data.json.")
+
+    _, viz_data = generate_and_save_grasps(scene, gripper_names=[gripper_name])
+    return scene, viz_data
+
+
+def _has_grasps(viz_data, gripper_name):
+    """True when ``viz_data`` holds at least one grasp for ``gripper_name``."""
+    return bool(
+        viz_data
+        and viz_data.get("grippers", {}).get(gripper_name, {}).get("grasps")
+    )
+
+
+def run_visualization(visualize, left_scene, viz_data_left, right_scene, viz_data_right):
+    """Launch the (blocking) viser visualization for each scene that has grasps."""
+    if not visualize:
+        logger.info("[Main] Visualization disabled by --no-visualize flag.")
+        return
+
+    if _has_grasps(viz_data_left, LEFT_GRIPPER_NAME):
+        logger.info(
+            f"[Main] Running left-hand camera visualization on port {LEFT_VIZ_PORT} for {left_scene}."
+        )
+        visualize_saved_grasps(left_scene, viz_data=viz_data_left, port=LEFT_VIZ_PORT)
+
+    if _has_grasps(viz_data_right, RIGHT_GRIPPER_NAME):
+        logger.info(
+            f"[Main] Running right-hand camera visualization on port {RIGHT_VIZ_PORT} for {right_scene}."
+        )
+        visualize_saved_grasps(right_scene, viz_data=viz_data_right, port=RIGHT_VIZ_PORT)
+
+    if not _has_grasps(viz_data_left, LEFT_GRIPPER_NAME) and not _has_grasps(viz_data_right, RIGHT_GRIPPER_NAME):
+        logger.warning("[Main] No viz_data returned for visualization; skipping.")
+
+
+def execute_wrist_grasps(robot, mode, left_scene, viz_data_left, right_scene, viz_data_right):
+    """Execute the grasp+place cycles for both arms from their wrist camera results."""
+    if _has_grasps(viz_data_left, LEFT_GRIPPER_NAME):
+        logger.info(f"[Main] Executing left-hand grasp(s) for {LEFT_TARGET_CLASSES}...")
+        execute_grasp_all_objects_wrist(
+            robot=robot,
+            scene_dir=left_scene,
+            viz_data=viz_data_left,
+            gripper_name=LEFT_GRIPPER_NAME,
+            arm=LEFT_ARM,
+            gripper_motor=LEFT_GRIPPER_MOTOR,
+            dry_run=(mode != "real"),
+            target_description=f"{LEFT_TARGET_CLASSES}",
+        )
+    else:
+        logger.info(f"[Main] No left-hand grasps for {LEFT_TARGET_CLASSES} to execute.")
+
+    if _has_grasps(viz_data_right, RIGHT_GRIPPER_NAME):
+        logger.info(f"[Main] Executing right-hand grasp(s) for {RIGHT_TARGET_CLASSES}...")
+        execute_grasp_all_objects_wrist(
+            robot=robot,
+            scene_dir=right_scene,
+            viz_data=viz_data_right,
+            gripper_name=RIGHT_GRIPPER_NAME,
+            arm=RIGHT_ARM,
+            gripper_motor=RIGHT_GRIPPER_MOTOR,
+            dry_run=(mode != "real"),
+            target_description=f"{RIGHT_TARGET_CLASSES}",
+        )
+    else:
+        logger.info(f"[Main] No right-hand grasps for {RIGHT_TARGET_CLASSES} to execute.")
+
+
 def main(args=None):
     logger.info(f"[Main] Args: {args}")
     mode = getattr(args, "mode", "real")
@@ -165,115 +290,44 @@ def main(args=None):
         logger.error("[Main] --scene-dir is required (e.g. assets/zerith/real_scene/00).")
         return
 
+    drive_chassis = getattr(args, "move_chassis", True)
     robot = None
     try:
-        if mode != "sim":
-            drive_chassis = getattr(args, "move_chassis", True)
-            robot = H1Robot()
-            logger.info("[INIT] Instantiating robot and connecting...")
-            if not robot.robot_connect():
-                logger.info("Failed to connect to robot!")
-                return
+        robot, ok = connect_robot(mode, drive_chassis)
+        if not ok:
+            return
 
-            robot.switchControlMode(MotorControlMode.HIGH_LEVEL)
-            robot.robot_init()
+        left_scene, viz_data_left = run_wrist_camera_pipeline(
+            robot, mode, yolo_model, scene_dir,
+            suffix=LEFT_HAND_CAM_SUFFIX,
+            camera_name=LEFT_HAND_CAMERA_NAME,
+            allowed_classes=LEFT_TARGET_CLASSES,
+            k_color=K_LEFT_HAND_COLOR,
+            gripper_name=LEFT_GRIPPER_NAME,
+            arm=LEFT_ARM,
+            target_description=(
+                f"Left Camera Pipeline: Target = ({LEFT_TARGET_CLASSES})"
+            ),
+        )
 
-            approach_workspace(robot, drive_chassis=drive_chassis)
-            logger.info("[Main] Workspace reached, please reset the environment!")
-            import pdb; pdb.set_trace()
-        else:
-            logger.info("[Main] Sim mode: robot is NOT connected or operated; "
-                        "processing the saved scenes offline.")
+        right_scene, viz_data_right = run_wrist_camera_pipeline(
+            robot, mode, yolo_model, scene_dir,
+            suffix=RIGHT_HAND_CAM_SUFFIX,
+            camera_name=RIGHT_HAND_CAMERA_NAME,
+            allowed_classes=RIGHT_TARGET_CLASSES,
+            k_color=K_RIGHT_HAND_COLOR,
+            gripper_name=RIGHT_GRIPPER_NAME,
+            arm=RIGHT_ARM,
+            target_description=(
+                f"Right Camera Pipeline: Target = ({RIGHT_TARGET_CLASSES})"
+            ),
+        )
 
-        # =========================================================================
-        # 1. Left-hand (wrist) camera & Left arm: Grasp L-shaped elbow pipe
-        # =========================================================================
-        left_scene = scene_dir + LEFT_HAND_CAM_SUFFIX
-        logger.info(f"[Main] === Left Camera Pipeline: Target = L-shaped elbow pipe ({LEFT_TARGET_CLASSES}) ===")
-        logger.info(f"[Main] Capturing left-hand camera scene into {left_scene} ...")
-        rgb_l, depth_l = acquire_rgbd(left_scene, mode=mode, camera_name=LEFT_HAND_CAMERA_NAME)
-        if depth_l is not None:
-            logger.info(f"[Main] LEFT HAND depth: shape={depth_l.shape} dtype={depth_l.dtype}")
-        det_l = detect_and_segment(rgb_l, yolo_model, left_scene, allowed_classes=LEFT_TARGET_CLASSES)
-        if mode == "real":
-            left_cam_pose = compute_hand_camera_pose(robot, arm=LEFT_ARM)
-            write_meta_data(
-                left_scene, robot, len(det_l),
-                camera_pose=left_cam_pose, intrinsics=K_LEFT_HAND_COLOR,
-            )
-        else:
-            logger.info("[Main] Sim mode: keeping existing left-scene meta_data.json.")
-        summary_left, viz_data_left = generate_and_save_grasps(left_scene, gripper_names=[LEFT_GRIPPER_NAME])
+        # Optional visualization
+        run_visualization(visualize, left_scene, viz_data_left, right_scene, viz_data_right)
 
-        # =========================================================================
-        # 2. Right-hand (wrist) camera & Right arm: Grasp Door handle
-        # =========================================================================
-        right_scene = scene_dir + RIGHT_HAND_CAM_SUFFIX
-        logger.info(f"[Main] === Right Camera Pipeline: Target = Door handle ({RIGHT_TARGET_CLASSES}) ===")
-        logger.info(f"[Main] Capturing right-hand camera scene into {right_scene} ...")
-        rgb_r, depth_r = acquire_rgbd(right_scene, mode=mode, camera_name=RIGHT_HAND_CAMERA_NAME)
-        if depth_r is not None:
-            logger.info(f"[Main] RIGHT HAND depth: shape={depth_r.shape} dtype={depth_r.dtype}")
-        det_r = detect_and_segment(rgb_r, yolo_model, right_scene, allowed_classes=RIGHT_TARGET_CLASSES)
-        if mode == "real":
-            right_cam_pose = compute_hand_camera_pose(robot, arm=RIGHT_ARM)
-            write_meta_data(
-                right_scene, robot, len(det_r),
-                camera_pose=right_cam_pose, intrinsics=K_RIGHT_HAND_COLOR,
-            )
-        else:
-            logger.info("[Main] Sim mode: keeping existing right-scene meta_data.json.")
-        summary_right, viz_data_right = generate_and_save_grasps(right_scene, gripper_names=[RIGHT_GRIPPER_NAME])
-
-        # =========================================================================
-        # 3. Optional Visualization
-        # =========================================================================
-        if visualize:
-            if viz_data_left and viz_data_left.get("grippers", {}).get(LEFT_GRIPPER_NAME, {}).get("grasps"):
-                logger.info(f"[Main] Running left-hand camera visualization in main thread for {left_scene}.")
-                visualize_saved_grasps(left_scene, viz_data=viz_data_left, port=8080)
-            elif viz_data_right and viz_data_right.get("grippers", {}).get(RIGHT_GRIPPER_NAME, {}).get("grasps"):
-                logger.info(f"[Main] Running right-hand camera visualization in main thread for {right_scene}.")
-                visualize_saved_grasps(right_scene, viz_data=viz_data_right, port=8080)
-            else:
-                logger.warning("[Main] No viz_data returned for visualization; skipping.")
-        else:
-            logger.info("[Main] Visualization disabled by --no-visualize flag.")
-
-        # =========================================================================
-        # 4. Grasp Execution
-        # =========================================================================
-        # (1) Left hand grasps L-shaped elbow pipes
-        if viz_data_left and viz_data_left.get("grippers", {}).get(LEFT_GRIPPER_NAME, {}).get("grasps"):
-            logger.info("[Main] Executing left-hand grasp(s) for L-shaped elbow pipe...")
-            execute_grasp_all_objects_wrist(
-                robot=robot,
-                scene_dir=left_scene,
-                viz_data=viz_data_left,
-                gripper_name=LEFT_GRIPPER_NAME,
-                arm=LEFT_ARM,
-                gripper_motor=LEFT_GRIPPER_MOTOR,
-                dry_run=(mode != "real"),
-                target_description="L-shaped elbow pipe (left arm)",
-            )
-        else:
-            logger.info("[Main] No left-hand grasps for L-shaped elbow pipe to execute.")
-
-        # (2) Right hand grasps Door handles
-        if viz_data_right and viz_data_right.get("grippers", {}).get(RIGHT_GRIPPER_NAME, {}).get("grasps"):
-            logger.info("[Main] Executing right-hand grasp(s) for door handle...")
-            execute_grasp_all_objects_wrist(
-                robot=robot,
-                scene_dir=right_scene,
-                viz_data=viz_data_right,
-                gripper_name=RIGHT_GRIPPER_NAME,
-                arm=RIGHT_ARM,
-                gripper_motor=RIGHT_GRIPPER_MOTOR,
-                dry_run=(mode != "real"),
-                target_description="door handle (right arm)",
-            )
-        else:
-            logger.info("[Main] No right-hand grasps for door handle to execute.")
+        # Grasp & place every detected object for each arm.
+        execute_wrist_grasps(robot, mode, left_scene, viz_data_left, right_scene, viz_data_right)
 
         logger.info("[Main] Pipeline finished successfully.")
 
