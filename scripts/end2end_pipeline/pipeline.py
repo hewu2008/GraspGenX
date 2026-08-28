@@ -1,8 +1,10 @@
 """Top-level orchestration of the end-to-end grasp pipeline."""
 
+import random
 import time
 
 import numpy as np
+import torch
 from scipy.spatial.transform import Rotation as R
 
 from lib_h1_sdk_python import H1Robot, MotorControlMode, ArmAction
@@ -279,7 +281,20 @@ def execute_wrist_grasps(robot, mode, left_scene, viz_data_left, right_scene, vi
         logger.info(f"[Main] No right-hand grasps for {RIGHT_TARGET_CLASSES} to execute.")
 
 
+def set_seed(seed: int = 42):
+    """Set random seeds across random, numpy, and torch for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def main(args=None):
+    seed = getattr(args, "seed", 42)
+    if seed is not None and seed >= 0:
+        set_seed(seed)
+        logger.info(f"[Main] Fixed random seed: {seed}")
     logger.info(f"[Main] Args: {args}")
     mode = getattr(args, "mode", "real")
     scene_dir = getattr(args, "scene_dir", None)

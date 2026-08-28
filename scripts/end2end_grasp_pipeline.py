@@ -64,6 +64,12 @@ def _parse_args():
         help="Render grasp visualizations to PNG after grasp generation (default: enabled). "
              "Pass --no-visualize to skip image output.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible grasp generation (default: 42). Pass -1 to disable.",
+    )
     return parser.parse_args()
 
 
