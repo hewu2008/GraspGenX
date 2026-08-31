@@ -224,7 +224,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     )
     import pdb; pdb.set_trace()
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
-                      pre_xyz, target_abs_quat.tolist(), 2)
+                      pre_xyz, target_abs_quat.tolist(), 4)
     time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
@@ -234,7 +234,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
-                      target_abs.tolist(), target_abs_quat.tolist(), 1)
+                      target_abs.tolist(), target_abs_quat.tolist(), 4)
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
     return pre_xyz
