@@ -17,7 +17,13 @@ from .config import (
     WRIST_TO_SDK_EEF_OFFSET_M,
     GRASP_TRIM_OFFSET_M,
 )
-from .robot_motion import _move_arm_to_pose, move_arm_relative, move_arm_to_grasp, move_waist_z
+from .robot_motion import (
+    _move_arm_to_pose,
+    get_arm_relative_pose,
+    move_arm_relative,
+    move_arm_to_grasp,
+    move_waist_z,
+)
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -258,10 +264,36 @@ def resolve_grasp_target_hand(robot, T_obj_cam):
 
 def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=TARGET_GRIPPER_MOTOR):
     """Full single-arm grasp cycle: approach, close, lift, place, release, retract."""
-    logger.info(f" -> Target relative translation: X={target_pos[0]:.4f}, Y={target_pos[1]:.4f}, Z={target_pos[2]:.4f}")
+    logger.info(
+        f" -> Target (arm-relative): pos={target_pos.tolist()}, "
+        f"quat={target_quat.tolist()}, "
+        f"euler_xyz(deg)={R.from_quat(target_quat).as_euler('xyz', degrees=True).tolist()}"
+    )
+
+    # Debug: read the arm pose BEFORE approaching so we can compare the start
+    # state with the post-approach pose below (both in the SDK zero frame).
+    pre_pos, pre_quat = get_arm_relative_pose(robot, arm=arm)
+    if pre_pos is not None:
+        logger.info(
+            f"[E] Pre-approach arm ({arm}) pose: pos={list(pre_pos)}, "
+            f"euler_xyz(deg)={R.from_quat(pre_quat).as_euler('xyz', degrees=True).tolist()}, "
+            f"commanded relative target_pos={target_pos.tolist()}"
+        )
 
     logger.info(f"[E] Moving arm ({arm}) to grasp target smoothly...")
     pre_grasp_xyz = move_arm_to_grasp(robot, target_pos, target_quat, arm=arm)
+
+    # Debug: read the arm pose right after approaching to verify the robot
+    # actually reached the commanded target. The pose is in the SDK zero frame
+    # (same frame as pre_grasp_xyz / target_abs), while target_pos is in the
+    # arm-relative frame -- do not compare them directly.
+    cur_pos, cur_quat = get_arm_relative_pose(robot, arm=arm)
+    if cur_pos is not None:
+        logger.info(
+            f"[E] Post-approach arm ({arm}) pose: pos={list(cur_pos)}, "
+            f"euler_xyz(deg)={R.from_quat(cur_quat).as_euler('xyz', degrees=True).tolist()}, "
+            f"pre_grasp_xyz={pre_grasp_xyz}"
+        )
 
     logger.info(f"[F] Closing gripper ({gripper_motor}) to grasp...")
     pdb.set_trace()

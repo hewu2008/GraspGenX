@@ -157,6 +157,36 @@ def move_arm_relative(robot, dx, dy, dz, arm=TARGET_ARM):
     logger.info(" -> Reached target.")
 
 
+def get_arm_relative_pose(robot, arm=TARGET_ARM):
+    """Get the current SDK pose of ``arm`` relative to its own zero position.
+
+    Mirrors the state read used inside ``move_arm_to_grasp``/``move_arm_relative``:
+    the returned position/quaternion is the "current" pose that ``setArm_high``
+    expects when composing a relative target (see ``compose_relative_pose``).
+
+    Args:
+        robot: connected H1Robot instance.
+        arm: arm identifier (default TARGET_ARM).
+
+    Returns:
+        (pos, quat) as read from the SDK, or (None, None) if the read failed
+        or returned incomplete data.
+    """
+    ok, arm_state = robot.getHandRelative(arm)
+    if not ok or arm_state is None:
+        logger.error(f"[Move] Failed to read pose for arm {arm}.")
+        return None, None
+    pos = getattr(arm_state, "position", None)
+    quat = getattr(arm_state, "rotation", None)
+    if pos is None or quat is None:
+        logger.error(f"[Move] Incomplete pose for arm {arm}.")
+        return None, None
+    logger.info(
+        f"[Move] Arm {arm} relative pose: pos={list(pos)}, quat={list(quat)}"
+    )
+    return pos, quat
+
+
 def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     """Three-stage approach: pre-grasp, orient, straight-line approach.
 
