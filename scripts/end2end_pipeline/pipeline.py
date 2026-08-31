@@ -144,8 +144,8 @@ def execute_grasp_all_objects_wrist(
 
         # Post-process target_quat: retain only the first Euler dimension (rotation around approach axis X)
         # and zero out pitch/yaw tilt deviations for vertical straight approach:
-        target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
-        target_quat = R.from_euler("xyz", [0.0, 0.0, 0.0], degrees=True).as_quat()
+        # target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
+        # target_quat = R.from_euler("xyz", [0.0, 0.0, 0.0], degrees=True).as_quat()
 
         _target_euler = R.from_quat(target_quat).as_euler("xyz", degrees=True)
         target_dist = float(np.linalg.norm(target_pos))
