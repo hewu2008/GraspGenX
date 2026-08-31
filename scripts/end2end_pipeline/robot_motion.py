@@ -9,7 +9,11 @@ from scipy.spatial.transform import Rotation as R, Slerp
 
 from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose
 
-from .config import RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION
+from .config import (
+    RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION,
+    APPROACH_MAX_TRANS_SPEED_MPS, APPROACH_MAX_ANG_SPEED_RPS,
+    APPROACH_MIN_DURATION_S,
+)
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +36,35 @@ def compose_relative_pose(start_xyz, start_quat, relative_xyz, relative_quat):
     absolute_xyz = start_xyz + start_rotation.apply(relative_xyz)
     absolute_quat = (start_rotation * relative_rotation).as_quat()
     return absolute_xyz, absolute_quat
+
+
+def compute_approach_duration(start_xyz, start_quat, target_xyz, target_quat):
+    """Derive an approach duration from the actual commanded motion.
+
+    The straight-line approach ("stage 3") formerly used a FIXED 1s duration, so
+    the commanded end-effector line/angular speed scaled with the approach
+    distance+rotation and exceeded the SDK tracking capability, leaving the arm
+    ~2-7cm short (sdk_accuracy exp, +X undershoot; worse when large rotation is
+    demanded). The duration is now chosen so speeds stay below the config limits.
+
+    Args:
+        start_xyz: absolute start SDK position.
+        start_quat: absolute start SDK quaternion.
+        target_xyz: absolute target SDK position.
+        target_quat: absolute target SDK quaternion.
+
+    Returns:
+        float duration in seconds that respects the speed limits (with a floor).
+    """
+    dist = np.linalg.norm(np.asarray(target_xyz, dtype=np.float64)
+                          - np.asarray(start_xyz, dtype=np.float64))
+    rot_delta = R.from_quat(target_quat) * R.from_quat(start_quat).inv()
+    ang = float(rot_delta.magnitude())
+    return max(
+        dist / APPROACH_MAX_TRANS_SPEED_MPS,
+        ang / APPROACH_MAX_ANG_SPEED_RPS,
+        APPROACH_MIN_DURATION_S,
+    )
 
 
 def prepare_robot_posture(robot, cur_waist_z, cur_waist_pitch, tar_waist_z, tar_waist_pitch):
@@ -88,6 +121,71 @@ def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
 
         robot.setArm_high(arm, pose)
         time.sleep(dt)
+
+
+def _wait_move_done(robot, arm, expected_duration, timeout_extra=5.0):
+    """Poll the high-level controller until the arm Move completes.
+
+    ``setArmMove_high`` is issued with ``block=True``; we additionally poll
+    ``getHighLevelState`` so callers can rely on the arm having actually reached
+    the target (state 4 = DONE). Bounded by a timeout derived from the expected
+    duration to avoid hanging on a lost/failed command.
+    """
+    deadline = time.time() + expected_duration + timeout_extra
+    while time.time() < deadline:
+        try:
+            ok, hls = robot.getHighLevelState()
+        except Exception:
+            ok, hls = False, None
+        if ok and hls is not None:
+            state = getattr(hls, "state", None)
+            progress = getattr(hls, "progress", None)
+            if state == 4:  # HighLevelState.DONE
+                logger.info(f"[Move] Arm {arm} move done (progress={progress}).")
+                return
+            if state == 5:  # HighLevelState.ERROR
+                logger.error(f"[Move] Arm {arm} high-level move error.")
+                return
+        time.sleep(DT)
+    logger.warning(f"[Move] Timed out waiting for arm {arm} move completion.")
+
+
+def _move_arm_to_pose_adaptive(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat):
+    """Move to a target pose using the SDK native Move primitive.
+
+    Uses ``setArmMove_high`` (SDK 1.3.9), which generates and executes its own
+    trajectory from the requested ``duration`` (derived via
+    ``compute_approach_duration`` to respect the end-effector speed limits).
+    The former per-2ms ``setArm_high`` interpolation is not used because its
+    incremental commands lag the servo and undershoot the target (sdk_accuracy
+    exp, +X shortfall scaling with commanded distance/rotation).
+
+    Blocks until the move is reported done so callers can rely on arrival.
+    """
+    pose = ArmEndPose()
+    pose.position = list(dest_xyz)
+    pose.rotation = list(dest_quat)
+
+    # Plan A: leave duration=0 so the SDK auto-derives the trajectory from the
+    # requested end-effector speed. The adaptive duration is still computed only
+    # as a timeout bound for the completion wait, not passed to the Move.
+    expected_duration = compute_approach_duration(
+        start_xyz, start_quat, dest_xyz, dest_quat
+    )
+
+    ok = robot.setArmMove_high(
+        arm, pose,
+        eef_velocity=APPROACH_MAX_TRANS_SPEED_MPS,
+        eef_acceleration=0.0,
+        duration=0.0,   # 0 = auto (SDK derives duration from eef_velocity)
+        block=True,
+    )
+    if not ok:
+        logger.warning(
+            f"[Move] setArmMove_high rejected for arm {arm} "
+            f"(speed={APPROACH_MAX_TRANS_SPEED_MPS:.2f} m/s)."
+        )
+    _wait_move_done(robot, arm, expected_duration)
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
@@ -223,8 +321,8 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
         f"pos={pre_xyz}, quat={target_abs_quat.tolist()}"
     )
     import pdb; pdb.set_trace()
-    _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
-                      pre_xyz, target_abs_quat.tolist(), 4)
+    _move_arm_to_pose_adaptive(robot, arm, arm_pos_rel, arm_quat_rel,
+                      pre_xyz, target_abs_quat.tolist())
     time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
@@ -233,8 +331,9 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel,
-                      target_abs.tolist(), target_abs_quat.tolist(), 4)
+
+    _move_arm_to_pose_adaptive(robot, arm, arm_pos_rel, arm_quat_rel,
+                               target_abs.tolist(), target_abs_quat.tolist())
     time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
     return pre_xyz

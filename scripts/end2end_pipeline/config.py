@@ -15,6 +15,16 @@ WAIST_PITCH = 1.2
 WAIST_MOVE_DURATION = 2.0
 GRIPPER_RELEASE_WAIT = 2.0  # Wait for the gripper to fully open before restoring waist.
 
+# Stage-3 approach speed limits. The straight-line approach ("stage 3") used to
+# run over a FIXED 1s duration, so the commanded end-effector line/angular speed
+# scaled with the approach distance+rotation and exceeded the SDK tracking
+# capability, leaving the arm ~2-7cm short (measured in sdk_accuracy exp, +X
+# undershoot). Duration is now computed adaptively from the actual motion while
+# keeping speeds below these limits.
+APPROACH_MAX_TRANS_SPEED_MPS = 0.1   # max end-effector translation speed (m/s)
+APPROACH_MAX_ANG_SPEED_RPS = 0.3     # max end-effector rotation speed (rad/s)
+APPROACH_MIN_DURATION_S = 1.5        # floor on the approach duration (s)
+
 # Fixed transform from the gripper base (wrist_pitch_link) to the SDK
 # Cartesian end-effector frame (end_effector_link).  This comes from
 # left/right_end_effector_joint in the Zerith URDF.  GraspGenX poses are anchored at
