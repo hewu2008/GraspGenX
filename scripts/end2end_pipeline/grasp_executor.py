@@ -305,7 +305,6 @@ def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=T
     # Retract to the pre-grasp point (absolute SDK frame), resetting the hand
     # orientation to zero (identity quat) on the way.
     logger.info("[G] Recovering to pre-grasp point, orientation zero...")
-    pdb.set_trace()
     _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
@@ -314,7 +313,6 @@ def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=T
     time.sleep(1.0)
 
     logger.info("[G] Lifting arm after grasp...")
-    pdb.set_trace()
     move_arm_relative(robot, -0.2, 0, 0.05, arm=arm)
     time.sleep(1.0)
 
@@ -329,29 +327,23 @@ def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=T
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel, lift_mid, [0, 0, 0, 1], 1)
-    time.sleep(1.0)
 
     # Move to placement position.
     logger.info("[H] Moving arm to placement position...")
-    pdb.set_trace()
     _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel, place_pos, [0, 0, 0, 1], 1)
-    time.sleep(1.0)
 
     # Drop: lower the waist before releasing.
     logger.info("[Waist] Lowering waist before release...")
-    pdb.set_trace()
     move_waist_z(robot, WAIST_NORMAL_Z, WAIST_RELEASE_Z)
-    time.sleep(1.0)
 
     close_cmd.Position = 0.0
     robot.setGripper_high(gripper_motor, close_cmd)
     time.sleep(GRIPPER_RELEASE_WAIT)
 
     # Restore the waist before retracting the arm.
-    pdb.set_trace()
     logger.info("[Waist] Restoring waist after release...")
     move_waist_z(robot, WAIST_RELEASE_Z, WAIST_NORMAL_Z)
 
@@ -360,13 +352,11 @@ def grasp_object(robot, target_pos, target_quat, arm=TARGET_ARM, gripper_motor=T
     _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    pdb.set_trace()
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel, lift_mid, [0, 0, 0, 1], 1)
     time.sleep(1.0)
 
     _, arm_state = robot.getHandRelative(arm)
     arm_pos_rel = getattr(arm_state, "position", None)
     arm_quat_rel = getattr(arm_state, "rotation", None)
-    pdb.set_trace()
     _move_arm_to_pose(robot, arm, arm_pos_rel, arm_quat_rel, retract_ready, [0, 0, 0, 1], 1)
     time.sleep(1.0)
