@@ -172,20 +172,8 @@ def _move_arm_to_pose_adaptive(robot, arm, start_xyz, start_quat, dest_xyz, dest
     expected_duration = compute_approach_duration(
         start_xyz, start_quat, dest_xyz, dest_quat
     )
-
-    ok = robot.setArmMove_high(
-        arm, pose,
-        eef_velocity=APPROACH_MAX_TRANS_SPEED_MPS,
-        eef_acceleration=0.0,
-        duration=0.0,   # 0 = auto (SDK derives duration from eef_velocity)
-        block=True,
-    )
-    if not ok:
-        logger.warning(
-            f"[Move] setArmMove_high rejected for arm {arm} "
-            f"(speed={APPROACH_MAX_TRANS_SPEED_MPS:.2f} m/s)."
-        )
-    _wait_move_done(robot, arm, expected_duration)
+    logger.info(f"[Move] Adaptive move duration: {expected_duration:.2f} s")
+    return _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat, expected_duration)
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
@@ -290,7 +278,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
 
     target_pos/target_quat form the target transform relative to the current
     SDK end-effector. Flow:
-      1. move to a pre-grasp point 15 cm behind the target, along the opposite
+      1. move to a pre-grasp point 10 cm behind the target, along the opposite
          of the grasp approach axis (hand +X / finger long axis);
       2. rotate in place to the grasp orientation;
       3. approach straight along the grasp axis to the target point.
@@ -315,7 +303,7 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
 
     # Stage 1+2 (merged): move to the pre-grasp waypoint while simultaneously
     # rotating to the grasp orientation.
-    pre_xyz = (target_abs - 0.20 * approach_dir).tolist()
+    pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
     logger.info(
         f"[Move] Pre-grasp waypoint (with grasp orientation): "
         f"pos={pre_xyz}, quat={target_abs_quat.tolist()}"
