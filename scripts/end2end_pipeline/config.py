@@ -29,9 +29,9 @@ APPROACH_MIN_DURATION_S = 1.5        # floor on the approach duration (s)
 # moves with adaptive duration still undershot by ~6cm / ~13deg, so arrival is
 # now verified by polling getHandRelative until the residual error is below
 # these tolerances or the timeout elapses).
-APPROACH_ARRIVE_POS_TOL_M = 0.01     # arrival position tolerance (m)
-APPROACH_ARRIVE_ANG_TOL_DEG = 3.0    # arrival orientation tolerance (deg)
-APPROACH_ARRIVE_TIMEOUT_EXTRA_S = 8.0  # extra seconds beyond expected duration
+APPROACH_ARRIVE_POS_TOL_M = 0.02     # arrival position tolerance (m)
+APPROACH_ARRIVE_ANG_TOL_DEG = 8.0    # arrival orientation tolerance (deg)
+APPROACH_ARRIVE_TIMEOUT_EXTRA_S = 2.0  # extra seconds beyond expected duration
 
 # Fixed transform from the gripper base (wrist_pitch_link) to the SDK
 # Cartesian end-effector frame (end_effector_link).  This comes from

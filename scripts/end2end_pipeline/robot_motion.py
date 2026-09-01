@@ -125,8 +125,7 @@ def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
         time.sleep(dt)
 
 
-def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration,
-                        poll_period=0.1):
+def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, poll_period=0.1):
     """Keep re-sending the final target until the arm converges to it.
 
     ``setArm_high`` is fire-and-forget: once the interpolation loop finishes,
@@ -140,7 +139,9 @@ def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration,
     """
     dest_xyz = np.asarray(dest_xyz, dtype=np.float64)
     dest_rot = R.from_quat(dest_quat)
-    deadline = time.time() + expected_duration + APPROACH_ARRIVE_TIMEOUT_EXTRA_S
+    deadline = time.time() + APPROACH_ARRIVE_TIMEOUT_EXTRA_S
+    pos_err = 0.0
+    ang_err_deg = 0.0
 
     while time.time() < deadline:
         # Re-send the destination so the controller keeps tracking it.
@@ -172,7 +173,8 @@ def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration,
 
     logger.warning(
         f"[Move] Arm {arm} did not converge within "
-        f"{expected_duration + APPROACH_ARRIVE_TIMEOUT_EXTRA_S:.1f}s."
+        f"{APPROACH_ARRIVE_TIMEOUT_EXTRA_S:.1f}s: "
+        f"residual pos_err={pos_err:.4f} m, ang_err={ang_err_deg:.2f} deg."
     )
     return False
 
@@ -197,7 +199,7 @@ def _move_arm_to_pose_adaptive(robot, arm, start_xyz, start_quat, dest_xyz, dest
     logger.info(f"[Move] Adaptive move duration: {expected_duration:.2f} s")
     _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
                       expected_duration)
-    _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration)
+    _hold_until_arrived(robot, arm, dest_xyz, dest_quat)
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
