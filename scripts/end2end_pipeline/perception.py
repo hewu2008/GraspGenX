@@ -28,7 +28,7 @@ from .logging_utils import get_logger
 logger = get_logger(__name__)
 
 # YOLO inference hyperparameters (the model path itself is supplied by the caller).
-YOLO_CONFIDENCE = 0.9
+YOLO_CONFIDENCE = 0.8
 YOLO_IOU_THRESHOLD = 0.7
 YOLO_IMAGE_SIZE = 640
 
