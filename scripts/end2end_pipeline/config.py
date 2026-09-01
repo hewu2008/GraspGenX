@@ -25,6 +25,14 @@ APPROACH_MAX_TRANS_SPEED_MPS = 0.1   # max end-effector translation speed (m/s)
 APPROACH_MAX_ANG_SPEED_RPS = 0.3     # max end-effector rotation speed (rad/s)
 APPROACH_MIN_DURATION_S = 1.5        # floor on the approach duration (s)
 
+# Arrival-convergence tolerances (sdk_accuracy exp run 5/6: interpolation-based
+# moves with adaptive duration still undershot by ~6cm / ~13deg, so arrival is
+# now verified by polling getHandRelative until the residual error is below
+# these tolerances or the timeout elapses).
+APPROACH_ARRIVE_POS_TOL_M = 0.01     # arrival position tolerance (m)
+APPROACH_ARRIVE_ANG_TOL_DEG = 3.0    # arrival orientation tolerance (deg)
+APPROACH_ARRIVE_TIMEOUT_EXTRA_S = 8.0  # extra seconds beyond expected duration
+
 # Fixed transform from the gripper base (wrist_pitch_link) to the SDK
 # Cartesian end-effector frame (end_effector_link).  This comes from
 # left/right_end_effector_joint in the Zerith URDF.  GraspGenX poses are anchored at

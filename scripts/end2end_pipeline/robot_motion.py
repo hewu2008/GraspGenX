@@ -13,6 +13,8 @@ from .config import (
     RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION,
     APPROACH_MAX_TRANS_SPEED_MPS, APPROACH_MAX_ANG_SPEED_RPS,
     APPROACH_MIN_DURATION_S,
+    APPROACH_ARRIVE_POS_TOL_M, APPROACH_ARRIVE_ANG_TOL_DEG,
+    APPROACH_ARRIVE_TIMEOUT_EXTRA_S,
 )
 from .logging_utils import get_logger
 
@@ -123,57 +125,79 @@ def _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
         time.sleep(dt)
 
 
-def _wait_move_done(robot, arm, expected_duration, timeout_extra=5.0):
-    """Poll the high-level controller until the arm Move completes.
+def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration,
+                        poll_period=0.1):
+    """Keep re-sending the final target until the arm converges to it.
 
-    ``setArmMove_high`` is issued with ``block=True``; we additionally poll
-    ``getHighLevelState`` so callers can rely on the arm having actually reached
-    the target (state 4 = DONE). Bounded by a timeout derived from the expected
-    duration to avoid hanging on a lost/failed command.
+    ``setArm_high`` is fire-and-forget: once the interpolation loop finishes,
+    the arm may still be lagging behind the last commanded pose (sdk_accuracy
+    exp run 5/6, ~6cm / ~13deg residual). This routine periodically re-sends
+    the destination pose and polls ``getHandRelative`` until the residual
+    position/orientation error drops below the config tolerances, or the
+    timeout (expected duration + extra) elapses.
+
+    Returns True when converged within tolerance, False on timeout.
     """
-    deadline = time.time() + expected_duration + timeout_extra
+    dest_xyz = np.asarray(dest_xyz, dtype=np.float64)
+    dest_rot = R.from_quat(dest_quat)
+    deadline = time.time() + expected_duration + APPROACH_ARRIVE_TIMEOUT_EXTRA_S
+
     while time.time() < deadline:
-        try:
-            ok, hls = robot.getHighLevelState()
-        except Exception:
-            ok, hls = False, None
-        if ok and hls is not None:
-            state = getattr(hls, "state", None)
-            progress = getattr(hls, "progress", None)
-            if state == 4:  # HighLevelState.DONE
-                logger.info(f"[Move] Arm {arm} move done (progress={progress}).")
-                return
-            if state == 5:  # HighLevelState.ERROR
-                logger.error(f"[Move] Arm {arm} high-level move error.")
-                return
-        time.sleep(DT)
-    logger.warning(f"[Move] Timed out waiting for arm {arm} move completion.")
+        # Re-send the destination so the controller keeps tracking it.
+        pose = ArmEndPose()
+        pose.position = list(dest_xyz)
+        pose.rotation = list(dest_quat)
+        robot.setArm_high(arm, pose)
+
+        time.sleep(poll_period)
+
+        ok, arm_state = robot.getHandRelative(arm)
+        if not ok or arm_state is None:
+            continue
+        cur_pos = np.asarray(arm_state.position, dtype=np.float64)
+        cur_quat = arm_state.rotation
+        if cur_quat is None:
+            continue
+        pos_err = float(np.linalg.norm(cur_pos - dest_xyz))
+        ang_err_deg = np.degrees(
+            (dest_rot * R.from_quat(cur_quat).inv()).magnitude()
+        )
+        if (pos_err <= APPROACH_ARRIVE_POS_TOL_M
+                and ang_err_deg <= APPROACH_ARRIVE_ANG_TOL_DEG):
+            logger.info(
+                f"[Move] Arm {arm} arrived: pos_err={pos_err:.4f} m, "
+                f"ang_err={ang_err_deg:.2f} deg."
+            )
+            return True
+
+    logger.warning(
+        f"[Move] Arm {arm} did not converge within "
+        f"{expected_duration + APPROACH_ARRIVE_TIMEOUT_EXTRA_S:.1f}s."
+    )
+    return False
 
 
 def _move_arm_to_pose_adaptive(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat):
-    """Move to a target pose using the SDK native Move primitive.
+    """Interpolate to a target pose, then hold the command until arrival.
 
-    Uses ``setArmMove_high`` (SDK 1.3.9), which generates and executes its own
-    trajectory from the requested ``duration`` (derived via
-    ``compute_approach_duration`` to respect the end-effector speed limits).
-    The former per-2ms ``setArm_high`` interpolation is not used because its
-    incremental commands lag the servo and undershoot the target (sdk_accuracy
-    exp, +X shortfall scaling with commanded distance/rotation).
-
-    Blocks until the move is reported done so callers can rely on arrival.
+    Two-step fix for the undershoot documented in the sdk_accuracy experiments
+    (runs 1-6: the arm stops short of the commanded pose, worst when a large
+    rotation is involved):
+      1. the interpolation duration is derived adaptively from the commanded
+         translation/rotation via ``compute_approach_duration`` so commanded
+         speeds stay within the SDK tracking limits;
+      2. after the interpolation finishes, the destination pose is re-sent and
+         the arm pose polled (``getHandRelative``) until the residual error is
+         below the arrival tolerances, instead of returning after a fixed
+         sleep(0.5) that read a mid-motion pose.
     """
-    pose = ArmEndPose()
-    pose.position = list(dest_xyz)
-    pose.rotation = list(dest_quat)
-
-    # Plan A: leave duration=0 so the SDK auto-derives the trajectory from the
-    # requested end-effector speed. The adaptive duration is still computed only
-    # as a timeout bound for the completion wait, not passed to the Move.
     expected_duration = compute_approach_duration(
         start_xyz, start_quat, dest_xyz, dest_quat
     )
     logger.info(f"[Move] Adaptive move duration: {expected_duration:.2f} s")
-    return _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat, expected_duration)
+    _move_arm_to_pose(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat,
+                      expected_duration)
+    _hold_until_arrived(robot, arm, dest_xyz, dest_quat, expected_duration)
 
 
 def move_arm_to_ready_pose(robot, cur_xyz, cur_quat, dest_xyz, dest_quat):
@@ -311,7 +335,6 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
     import pdb; pdb.set_trace()
     _move_arm_to_pose_adaptive(robot, arm, arm_pos_rel, arm_quat_rel,
                       pre_xyz, target_abs_quat.tolist())
-    time.sleep(0.5)
 
     # Stage 3: straight-line approach along the grasp axis to the target.
     logger.info(f"[Move] Approach to grasp pose: {target_abs.tolist()}")
@@ -322,7 +345,6 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
 
     _move_arm_to_pose_adaptive(robot, arm, arm_pos_rel, arm_quat_rel,
                                target_abs.tolist(), target_abs_quat.tolist())
-    time.sleep(0.5)
     logger.info(" -> Reached grasp pose.")
     return pre_xyz
 
