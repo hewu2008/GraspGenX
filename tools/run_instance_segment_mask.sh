@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IMAGE_PATH=${1:-assets/zerith/real_scene/00/rgb.png}
+IMAGE_PATH=${1:-assets/zerith/real_scene/02_cam_right_wrist/rgb.png}
 MODEL_PATH=${2:-assets/zerith/yolo/last_20260807_v0.pt}
 CONF=${3:-0.9}
 IOU=${4:-0.7}
