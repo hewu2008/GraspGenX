@@ -1,27 +1,38 @@
 """Replay grasp poses: repeatedly return to initial pose and execute grasps.
 
-Continuity with the modular end2end pipeline:
+The replay targets a WRIST (hand) camera scene (e.g. assets/zerith/real_scene/
+02_cam_left_wrist inferred from the grasp directory name), so it uses the
+wrist-camera hand-eye chain -- NOT the head-camera IMU/FK chain.
 
     init robot                 -> see :func:`init_robot`
     move to initial pose       -> :func:`_return_to_initial_pose`
     input grasp poses          -> read GraspGenX ``grasps/*.npz`` (world frame)
     repeat grasp & go back     -> for each (gripper, label) top-K grasp:
                                       return to initial pose
-                                      world grasp -> head-camera frame -> arm target
+                                      world grasp -> wrist-camera frame -> arm target
                                       grasp_object()  (approach/close/lift/place/release)
                                       return to initial pose
 
-The grasps saved by ``generate_and_save_grasps`` (scripts/end2end_grasp_pipeline.py
--> scripts/end2end_pipeline/grasp_generation.py) live in the WORLD frame. Here they
-are mapped back to the head-camera frame via ``compute_camera_pose`` (IMU + waist/head
-FK, the single source of truth also used for meta_data.json) and then fed to the
-existing head-camera chain ``resolve_grasp_target``, which yields the arm-relative
-SDK eef target that ``grasp_object`` consumes.
+Coordinate chain (all 4x4, right-multiplied as composition):
 
-Because each loop iteration first returns the robot to the *same* initial pose
-(waist z/pitch + both arms in the ready pose, chassis unmoved), the camera-to-world
-transform is (nearly) constant across iterations, so reuse of a world-frame grasp is
-consistent. If the chassis/waist/head drift between iterations, re-plan instead.
+    T_cam_world = compute_hand_camera_pose(robot, arm)      # wrist camera -> world
+    T_obj_cam   = inv(T_cam_world) @ grasp4x4               # world grasp -> wrist-camera frame
+    T_grasp_eef = CAM_TO_SDK_EEF_HAND @ T_obj_cam           # wrist cam -> current SDK eef
+    (pos, quat) = _grasp_in_eef_to_sdk_target(T_grasp_eef)  # -> final SDK eef target
+
+``compute_hand_camera_pose`` derives the wrist camera pose from IMU + waist +
+the *current* arm pose (getHandRelative) plus the fixed URDF hand-eye offset
+``CAM_TO_SDK_EEF_HAND``. Unlike the head path it does not rely on neck/waist
+head joints -- the wrist camera is rigidly attached to the arm.
+
+Because every loop iteration first returns the robot to the *same* initial pose
+and does not move the chassis, the wrist camera-to-world transform is (nearly)
+constant across iterations, so reusing a world-frame grasp is consistent. If the
+chassis/waist/arm drift between iterations, re-plan instead.
+
+NOTE: the hand-eye offset CAM_TO_SDK_EEF_HAND in grasp_executor is calibrated for
+the LEFT wrist camera; right-wrist replays reuse it as-is unless a mirrored
+calibration is added.
 
 NOTE: grasp_executor.grasp_object() and robot_motion.move_arm_to_grasp() contain
 ``pdb.set_trace()`` breakpoints from the interactive tuning flow; when running this
@@ -29,7 +40,7 @@ replay unattended make sure they are removed or answered ('c') or the loop will 
 
 Run from the project root, e.g.:
     sudo -E /home/robot/miniconda3/envs/zerith_graspgen/bin/python scripts/replay_grasps.py \
-        --scene-dir assets/zerith/real_scene/02
+        --scene-dir assets/zerith/real_scene/02_cam_left_wrist
 """
 
 import os
@@ -47,8 +58,8 @@ from .config import (
     RIGHT_GRIPPER_NAME,
 )
 from .robot_motion import prepare_robot_posture, move_arm_to_ready_pose
-from .grasp_executor import resolve_grasp_target, grasp_object
-from .camera_pose import compute_camera_pose
+from .grasp_executor import resolve_grasp_target_hand, grasp_object
+from .camera_pose import compute_hand_camera_pose
 from .logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -58,8 +69,8 @@ logger = get_logger(__name__)
 _READY_XYZ = [-0.1, 0.0, 0.30]
 _READY_QUAT = [0.0, 0.0, 0.0, 1.0]
 
-# Infer the arm + gripper motor from the ```zerith_<side>_gripper`` name used in the
-# grasper sub-directory (grasps/<gripper>/<label>.npz).
+# Infer the arm + gripper motor from the ``zerith_<side>_gripper`` name used in the
+# grasp sub-directory (grasps/<gripper>/<label>.npz).
 _GRIPPER_SPECS = {
     LEFT_GRIPPER_NAME: (LEFT_ARM, LEFT_GRIPPER_MOTOR),
     RIGHT_GRIPPER_NAME: (RIGHT_ARM, RIGHT_GRIPPER_MOTOR),
@@ -151,15 +162,16 @@ def collect_grasp_plan(scene_dir, grasps_dir=None, top_grasps=1):
     return plan
 
 
-def world_grasp_to_head_cam(robot, grasp4x4):
-    """Map a world-frame grasp pose into the head-camera frame.
+def world_grasp_to_hand_cam(robot, arm, grasp4x4):
+    """Map a world-frame grasp pose into the `arm` wrist-camera frame.
 
-    Uses compute_camera_pose (IMU + waist/head FK) as the single world<->camera
-    reference. Returns the 4x4 camera-frame target, or None on failure.
+    Uses compute_hand_camera_pose (IMU + waist + current arm pose + fixed hand-eye
+    offset) as the single world <-> wrist-camera reference. Returns the 4x4
+    wrist-camera-frame target, or None on failure.
     """
-    T_cam_world = compute_camera_pose(robot)
+    T_cam_world = compute_hand_camera_pose(robot, arm=arm)
     if T_cam_world is None:
-        logger.error("[Replay] Failed to compute camera pose; cannot map grasp.")
+        logger.error("[Replay] Failed to compute hand camera pose; cannot map grasp.")
         return None
     T_world_cam = np.linalg.inv(T_cam_world)
     return T_world_cam @ grasp4x4
@@ -204,12 +216,12 @@ def run_replay(
                 )
 
                 _return_to_initial_pose(robot)
-                T_obj_cam = world_grasp_to_head_cam(robot, grasp4x4)
+                T_obj_cam = world_grasp_to_hand_cam(robot, arm, grasp4x4)
                 if T_obj_cam is None:
                     continue
-                target_pos, target_quat = resolve_grasp_target(robot, T_obj_cam)
+                target_pos, target_quat = resolve_grasp_target_hand(robot, T_obj_cam)
                 if target_pos is None:
-                    logger.error("[Replay] resolve_grasp_target failed; skipping grasp.")
+                    logger.error("[Replay] resolve_grasp_target_hand failed; skipping grasp.")
                     continue
 
                 grasp_object(robot, target_pos, target_quat, arm=arm, gripper_motor=motor)
