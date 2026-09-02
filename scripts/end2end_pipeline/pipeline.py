@@ -147,13 +147,19 @@ def execute_grasp_all_objects_wrist(
                 if reachable:
                     picked = int(idx)
                     break
-            if picked is not None:
-                best_idx = picked
-            else:
+                # Log the rejected (kinematically-unreachable) candidate in detail.
+                logger.warning(
+                    f"[Grasp] {obj_label}: FILTERED cand idx={int(idx)} "
+                    f"conf={c:.3f} world_pos={T_cand[:3, 3].tolist()} "
+                    f"euler_xyz(deg)={R.from_matrix(T_cand[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
+                )
+            if picked is None:
                 logger.warning(
                     f"[Grasp] {obj_label}: no grasp candidate is IK-reachable; "
-                    f"falling back to best conf."
+                    f"skipping this object."
                 )
+                continue
+            best_idx = picked
 
         T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
         T_cam = cam_pose_inv @ T_world  # world -> camera frame
