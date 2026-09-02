@@ -21,7 +21,7 @@ from .grasp_executor import (
     grasp_object,
 )
 from .camera_pose import compute_hand_camera_pose
-from .ik_feasibility import check_grasp_reachable
+from .ik_feasibility import check_grasp_reachable, verify_fk_against_sdk
 from .config import (
     LEFT_HAND_CAMERA_NAME,
     LEFT_HAND_CAM_SUFFIX,
@@ -202,7 +202,15 @@ def connect_robot(mode, drive_chassis):
 
     approach_workspace(robot, drive_chassis=drive_chassis)
     logger.info("[Main] Workspace reached, please reset the environment!")
-    
+
+    # Calibrate the SDK-motor-zero <-> URDF body_yaw_link base frame offset(s)
+    # (S_T_B) for both arms, MULTI-pose sampling to check stability. Updates the
+    # cached offset used by check_grasp_reachable's base-frame alignment.
+    try:
+        verify_fk_against_sdk(robot, side=None, samples=3, settle_s=0.3, store=True)
+    except Exception as e:
+        logger.warning(f"[IK] FK-vs-SDK calibration failed, continuing without it: {e}")
+
     import pdb; pdb.set_trace()
     return robot, True
 
