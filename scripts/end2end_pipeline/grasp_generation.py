@@ -35,7 +35,7 @@ GRASP_MOE_SKIP_OBB_RULE = "auto"
 GRASP_MOE_OBB_DENSITY = "dense"
 GRASP_MOE_OBB_POSITION_SPACING_CM = 1.0
 GRASP_MIN_OBJ_POINTS = 100
-GRASP_COLLISION_THRESHOLD = 0.002
+GRASP_COLLISION_THRESHOLD = 0.001
 # Camera-frame orientation filter: keep only grasps whose pitch/roll (folded
 # to [-90,90]) stay within +/-GRASP_MAX_PITCH_DEG/GRASP_MAX_ROLL_DEG and whose
 # yaw stays within +/-GRASP_MAX_YAW_DEG. Disable with False to keep all poses.
@@ -192,17 +192,34 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                 continue
 
             # Collision filter (target object's own pixels excluded).
-            scene_pc = build_scene_pc_excluding_object(scene, label)
-            if len(scene_pc) > GRASP_MAX_SCENE_POINTS:
+            scene_pc_raw = build_scene_pc_excluding_object(scene, label)
+            if len(scene_pc_raw) > GRASP_MAX_SCENE_POINTS:
                 idx = np.random.choice(
-                    len(scene_pc), GRASP_MAX_SCENE_POINTS, replace=False
+                    len(scene_pc_raw), GRASP_MAX_SCENE_POINTS, replace=False
                 )
-                scene_pc = scene_pc[idx]
+                scene_pc = scene_pc_raw[idx]
+            else:
+                scene_pc = scene_pc_raw
+            logger.info(
+                f"[Perc] [{gripper_name}/{label}] scene_pc excluding target: "
+                f"{len(scene_pc_raw)} pts -> using {len(scene_pc)} for collision check"
+            )
             cf_mask = filter_colliding_grasps(
                 scene_pc=scene_pc,
                 grasp_poses=grasps,
                 collision_threshold=GRASP_COLLISION_THRESHOLD,
                 gripper_surface_points=gripper_surface_points,
+            )
+            dropped_grasps = grasps[~cf_mask]
+            _log_collision_source_distribution(
+                labels=labels,
+                obj_pcs=obj_pcs,
+                collided_grasps=dropped_grasps,
+                scene_pc=scene_pc,
+                gripper_surface_points=gripper_surface_points,
+                threshold=GRASP_COLLISION_THRESHOLD,
+                gripper_name=gripper_name,
+                label=label,
             )
             grasps = grasps[cf_mask]
             conf = conf[cf_mask]
@@ -254,3 +271,77 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
         summary[gripper_name] = per_gripper
         viz_data["grippers"][gripper_name]["grasps"] = grasps_for_viz
     return summary, viz_data
+
+
+def _log_collision_source_distribution(
+    labels,
+    obj_pcs,
+    collided_grasps,
+    scene_pc,
+    gripper_surface_points,
+    threshold,
+    gripper_name,
+    label,
+    num_samples=800,
+    contact_tol_m=0.010,
+    bg_tol_m=0.050,
+):
+    """Diagnose where the collision-filter rejections come from.
+
+    For each collision-rejected grasp, sample ``num_samples`` points on the
+    gripper collision mesh, transform them to world, and find which ones land
+    within ``threshold`` of the (target-excluded) scene point cloud. The
+    nearest-target-object distance of each such collision point classifies the
+    rejection source:
+
+      * target-surface / through-body  : distance < contact_tol_m  (build_scene_pc_excluding_object
+                                          left target pixels behind, or grasp pierces the object)
+      * target-nearby edge              : contact_tol_m .. bg_tol_m (gripper skirts the object with no margin)
+      * background / tray / other       : distance >= bg_tol_m
+
+    Also logs how many scene points are actually used so the 8192 cap question
+    can be answered from data.
+    """
+    from scipy.spatial import cKDTree
+
+    if len(collided_grasps) == 0:
+        return
+
+    target_pc = np.asarray(obj_pcs[labels.index(label)], dtype=np.float64)
+    target_tree = cKDTree(target_pc)
+    scene_tree = cKDTree(np.asarray(scene_pc, dtype=np.float64))
+
+    rng = np.random.default_rng(0)
+    n_samp = min(num_samples, len(gripper_surface_points))
+    gidx = rng.choice(len(gripper_surface_points), size=n_samp, replace=False)
+    gpts = np.asarray(gripper_surface_points, dtype=np.float64)[gidx]  # (S, 3)
+
+    coll_tgt_dist = []
+    for p in np.asarray(collided_grasps, dtype=np.float64):
+        world = (p[:3, :3] @ gpts.T + p[:3, 3:4]).T  # (S, 3)
+        d_scene = scene_tree.query(world)[0]
+        hit = world[d_scene < threshold]
+        if len(hit) > 0:
+            coll_tgt_dist.extend(target_tree.query(hit)[0].tolist())
+
+    arr = np.asarray(coll_tgt_dist, dtype=np.float64)
+    if len(arr) == 0:
+        logger.warning(
+            f"[Perc] [{gripper_name}/{label}] {len(collided_grasps)} grasps collided "
+            "but no collision points found (scene_pc check mismatch)."
+        )
+        return
+
+    n_contact = int((arr < contact_tol_m).sum())
+    n_edge = int(((arr >= contact_tol_m) & (arr < bg_tol_m)).sum())
+    n_bg = int((arr >= bg_tol_m).sum())
+    tot = len(arr)
+    logger.info(
+        f"[Perc] [{gripper_name}/{label}] collision-source: {len(collided_grasps)} "
+        f"rejected grasps, {tot} collision pts vs scene_pc({len(scene_pc)} pts); "
+        f"target-dist pts: "
+        f"contact-obj(<{int(contact_tol_m*1000)}mm)={n_contact}({100*n_contact/tot:.0f}%), "
+        f"edge({int(contact_tol_m*1000)}-{int(bg_tol_m*1000)}mm)={n_edge}({100*n_edge/tot:.0f}%), "
+        f"background/tray(>={int(bg_tol_m*1000)}mm)={n_bg}({100*n_bg/tot:.0f}%); "
+        f"target-dist med={1000*np.median(arr):.0f}mm, max={1000*arr.max():.0f}mm"
+    )
