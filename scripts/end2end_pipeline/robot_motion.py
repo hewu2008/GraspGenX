@@ -11,7 +11,6 @@ from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose, EtherCAT_Motor_Ind
 
 from .config import (
     RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION,
-    LEFT_ARM, RIGHT_ARM,
     APPROACH_MAX_TRANS_SPEED_MPS, APPROACH_MAX_ANG_SPEED_RPS,
     APPROACH_MIN_DURATION_S,
     APPROACH_ARRIVE_POS_TOL_M, APPROACH_ARRIVE_ANG_TOL_DEG,
@@ -189,22 +188,18 @@ def _log_arm_joint_states(robot, arm):
     A joint whose position stopped changing while still being commanded, or an
     ``error_flag != 0``, points to a limit rather than simple undershoot.
     """
-    if arm == LEFT_ARM:
-        joint_ids = range(
-            EtherCAT_Motor_Index.MOTOR_LEFT_ARM_1, EtherCAT_Motor_Index.MOTOR_LEFT_ARM_8 + 1
-        )
-    else:
-        joint_ids = range(
-            EtherCAT_Motor_Index.MOTOR_RIGHT_ARM_1, EtherCAT_Motor_Index.MOTOR_RIGHT_ARM_8 + 1
-        )
+    side = "LEFT" if arm == ArmAction.LEFT_ARM else "RIGHT"
     logger.warning(f"[Move] Arm {arm} joint states (limit check):")
-    for jid in joint_ids:
-        ok, info = robot.getMotorState(int(jid))
+    for i in range(1, 8):  # arm joints MOTOR_{LEFT,RIGHT}_ARM_1..7
+        mid = getattr(EtherCAT_Motor_Index, f"MOTOR_{side}_ARM_{i}", None)
+        if mid is None:
+            continue
+        ok, info = robot.getMotorState(mid)
         if not ok or info is None:
-            logger.warning(f"  motor {jid}: <unreadable>")
+            logger.warning(f"  motor {mid}: <unreadable>")
             continue
         logger.warning(
-            f"  motor {jid}: pos={info.Position_Actual:.4f} "
+            f"  motor {mid}: pos={info.Position_Actual:.4f} "
             f"speed={info.Speed_Actual:.3f} torque={info.Torque_Actual:.3f} "
             f"error_flag={info.Error_flag}"
         )
