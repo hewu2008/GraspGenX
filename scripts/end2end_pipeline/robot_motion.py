@@ -7,10 +7,11 @@ import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R, Slerp
 
-from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose
+from lib_h1_sdk_python import ArmAction, ArmPose, ArmEndPose, EtherCAT_Motor_Index
 
 from .config import (
     RATE_HZ, DT, TARGET_ARM, WAIST_PITCH, WAIST_MOVE_DURATION,
+    LEFT_ARM, RIGHT_ARM,
     APPROACH_MAX_TRANS_SPEED_MPS, APPROACH_MAX_ANG_SPEED_RPS,
     APPROACH_MIN_DURATION_S,
     APPROACH_ARRIVE_POS_TOL_M, APPROACH_ARRIVE_ANG_TOL_DEG,
@@ -176,7 +177,37 @@ def _hold_until_arrived(robot, arm, dest_xyz, dest_quat, poll_period=0.1):
         f"{APPROACH_ARRIVE_TIMEOUT_EXTRA_S:.1f}s: "
         f"residual pos_err={pos_err:.4f} m, ang_err={ang_err_deg:.2f} deg."
     )
+    _log_arm_joint_states(robot, arm)
     return False
+
+
+def _log_arm_joint_states(robot, arm):
+    """Print the target arm's joint motor states (pos/speed/torque/error_flag).
+
+    Called after a non-convergence timeout in :func:`_hold_until_arrived` to help
+    tell whether the residual is a tracking lag or an actual hard limit / pinch.
+    A joint whose position stopped changing while still being commanded, or an
+    ``error_flag != 0``, points to a limit rather than simple undershoot.
+    """
+    if arm == LEFT_ARM:
+        joint_ids = range(
+            EtherCAT_Motor_Index.MOTOR_LEFT_ARM_1, EtherCAT_Motor_Index.MOTOR_LEFT_ARM_8 + 1
+        )
+    else:
+        joint_ids = range(
+            EtherCAT_Motor_Index.MOTOR_RIGHT_ARM_1, EtherCAT_Motor_Index.MOTOR_RIGHT_ARM_8 + 1
+        )
+    logger.warning(f"[Move] Arm {arm} joint states (limit check):")
+    for jid in joint_ids:
+        ok, info = robot.getMotorState(int(jid))
+        if not ok or info is None:
+            logger.warning(f"  motor {jid}: <unreadable>")
+            continue
+        logger.warning(
+            f"  motor {jid}: pos={info.Position_Actual:.4f} "
+            f"speed={info.Speed_Actual:.3f} torque={info.Torque_Actual:.3f} "
+            f"error_flag={info.Error_flag}"
+        )
 
 
 def _move_arm_to_pose_adaptive(robot, arm, start_xyz, start_quat, dest_xyz, dest_quat):
