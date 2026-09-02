@@ -215,7 +215,6 @@ def run_replay(
                     f"pos={grasp4x4[:3, 3].tolist()}"
                 )
 
-                _return_to_initial_pose(robot)
                 T_obj_cam = world_grasp_to_hand_cam(robot, arm, grasp4x4)
                 if T_obj_cam is None:
                     continue
@@ -223,9 +222,9 @@ def run_replay(
                 if target_pos is None:
                     logger.error("[Replay] resolve_grasp_target_hand failed; skipping grasp.")
                     continue
-
+                
+                import pdb; pdb.set_trace()
                 grasp_object(robot, target_pos, target_quat, arm=arm, gripper_motor=motor)
-                _return_to_initial_pose(robot)
 
         logger.info("[Replay] All rounds complete.")
         return 0
