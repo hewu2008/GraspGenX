@@ -62,7 +62,7 @@ _ARM_JOINTS = [
 
 DEFAULT_SEEDS = 6
 DEFAULT_MAX_ITERS = 150
-DEFAULT_RESIDUAL_TOL = 0.05     # 50 mm / 50 mrad IK convergence tolerance
+DEFAULT_RESIDUAL_TOL = 0.02     # 20 mm / 20 mrad IK convergence tolerance
                                  # (was 5e-3; widened to match the ~2 cm real arm
                                  #  execution accuracy so borderline-but-reachable
                                  #  poses near wrist joint limits are not mis-rejected)
