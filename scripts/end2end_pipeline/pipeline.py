@@ -124,10 +124,40 @@ def execute_grasp_all_objects_wrist(
             logger.warning(f"[Grasp] {obj_label}: no grasps, skipping")
             continue
 
-        best_idx = int(np.argmax(conf))
+        order = np.argsort(conf)[::-1]           # descending confidence
+        best_idx = int(order[0])
+
+        if robot is not None:
+            # Prefer the highest-confidence pose whose IK says the arm can reach it;
+            # skip kinematically-unreachable candidates even if they are top-ranked.
+            side = "left" if "left" in gripper_name else "right"
+            picked = None
+            for idx in order:
+                c = float(conf[int(idx)])
+                T_cand = np.asarray(grasps[int(idx)], dtype=np.float64)
+                Tc_cand = cam_pose_inv @ T_cand
+                t_pos, t_quat = resolve_grasp_target_hand(robot, Tc_cand)
+                if t_pos is None:
+                    continue
+                reachable, ik_detail = check_grasp_reachable(robot, side, arm, t_pos, t_quat)
+                logger.info(
+                    f"[Grasp] {obj_label}: cand idx={int(idx)} conf={c:.3f} "
+                    f"IK reachable={reachable} (detail={ik_detail})"
+                )
+                if reachable:
+                    picked = int(idx)
+                    break
+            if picked is not None:
+                best_idx = picked
+            else:
+                logger.warning(
+                    f"[Grasp] {obj_label}: no grasp candidate is IK-reachable; "
+                    f"falling back to best conf."
+                )
+
         T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
         T_cam = cam_pose_inv @ T_world  # world -> camera frame
-        
+
         logger.info(
             f"[Grasp] {obj_label}: pre(world)  pos={T_world[:3, 3].tolist()}, "
             f"euler_xyz(deg)={R.from_matrix(T_world[:3, :3]).as_euler('xyz', degrees=True).tolist()}"
@@ -142,21 +172,6 @@ def execute_grasp_all_objects_wrist(
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
-
-        # IK inverse-kinematics feasibility check: verify the grasp target is
-        # within the arm's joint-limit / workspace reach, and print the result.
-        if robot is not None:
-            side = "left" if "left" in gripper_name else "right"
-            reachable, ik_detail = check_grasp_reachable(robot, side, arm, target_pos, target_quat)
-            logger.info(
-                f"[Grasp] {obj_label}: IK feasibility reachable={reachable} "
-                f"(detail={ik_detail})"
-            )
-            if reachable is False:
-                logger.warning(
-                    f"[Grasp] {obj_label}: target may be outside the {side} arm "
-                    f"workspace / joint limits; executing anyway (IK check did not block)."
-                )
 
         # Post-process target_quat: retain only the first Euler dimension (rotation around approach axis X)
         # and zero out pitch/yaw tilt deviations for vertical straight approach:

@@ -62,7 +62,10 @@ _ARM_JOINTS = [
 
 DEFAULT_SEEDS = 6
 DEFAULT_MAX_ITERS = 150
-DEFAULT_RESIDUAL_TOL = 5e-3      # 5 mm / 5 mrad IK convergence tolerance
+DEFAULT_RESIDUAL_TOL = 0.05     # 50 mm / 50 mrad IK convergence tolerance
+                                 # (was 5e-3; widened to match the ~2 cm real arm
+                                 #  execution accuracy so borderline-but-reachable
+                                 #  poses near wrist joint limits are not mis-rejected)
 # Joint-limit margin used only as a *soft* diagnostic: the SDK joint zero may
 # differ slightly from the URDF zero, so absolute URDF margins are unreliable.
 # A target that asks for a joint beyond a URDF limit fails to converge to a small
