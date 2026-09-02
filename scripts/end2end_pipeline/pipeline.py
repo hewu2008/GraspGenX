@@ -21,6 +21,7 @@ from .grasp_executor import (
     grasp_object,
 )
 from .camera_pose import compute_hand_camera_pose
+from .ik_feasibility import check_grasp_reachable
 from .config import (
     LEFT_HAND_CAMERA_NAME,
     LEFT_HAND_CAM_SUFFIX,
@@ -141,6 +142,21 @@ def execute_grasp_all_objects_wrist(
         if target_pos is None:
             logger.error(f"[Grasp] {obj_label}: failed to resolve target, skipping")
             continue
+
+        # IK inverse-kinematics feasibility check: verify the grasp target is
+        # within the arm's joint-limit / workspace reach, and print the result.
+        if robot is not None:
+            side = "left" if "left" in gripper_name else "right"
+            reachable, ik_detail = check_grasp_reachable(robot, side, arm, target_pos, target_quat)
+            logger.info(
+                f"[Grasp] {obj_label}: IK feasibility reachable={reachable} "
+                f"(detail={ik_detail})"
+            )
+            if reachable is False:
+                logger.warning(
+                    f"[Grasp] {obj_label}: target may be outside the {side} arm "
+                    f"workspace / joint limits; executing anyway (IK check did not block)."
+                )
 
         # Post-process target_quat: retain only the first Euler dimension (rotation around approach axis X)
         # and zero out pitch/yaw tilt deviations for vertical straight approach:
