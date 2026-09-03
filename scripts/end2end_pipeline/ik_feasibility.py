@@ -73,7 +73,7 @@ DEFAULT_RESIDUAL_TOL = 0.02     # 20 mm / 20 mrad IK convergence tolerance
 # real robot can reach. Near-limit hard-stops must instead be handled by FK
 # calibration (verify_fk_against_sdk) or a runtime safety stop on the offending
 # joint, not by an IK margin gate.
-DEFAULT_JOINT_MARGIN_DEG = 8.0
+DEFAULT_JOINT_MARGIN_DEG = 0.0
 
 _lock = threading.Lock()
 _model_cache = {}   # side -> (model, data, joint_names, frame_id)
