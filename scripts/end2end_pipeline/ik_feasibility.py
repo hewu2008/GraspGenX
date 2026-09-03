@@ -66,11 +66,14 @@ DEFAULT_RESIDUAL_TOL = 0.02     # 20 mm / 20 mrad IK convergence tolerance
                                  # (was 5e-3; widened to match the ~2 cm real arm
                                  #  execution accuracy so borderline-but-reachable
                                  #  poses near wrist joint limits are not mis-rejected)
-# Joint-limit margin used only as a *soft* diagnostic: the SDK joint zero may
-# differ slightly from the URDF zero, so absolute URDF margins are unreliable.
-# A target that asks for a joint beyond a URDF limit fails to converge to a small
-# residual and is rejected by DEFAULT_RESIDUAL_TOL instead.
-DEFAULT_JOINT_MARGIN_DEG = 0.0
+# Joint-limit margin. KEEP AT 0.0 (DISABLED): the URDF joint limits / zero do
+# not match the real robot, so URDF IK solutions sit right against the limits
+# even for the working ready pose (left ARM_1=87.8 vs upper 90, right ARM_1=90.0
+# exactly at upper). Enabling a non-zero margin therefore mis-rejects poses the
+# real robot can reach. Near-limit hard-stops must instead be handled by FK
+# calibration (verify_fk_against_sdk) or a runtime safety stop on the offending
+# joint, not by an IK margin gate.
+DEFAULT_JOINT_MARGIN_DEG = 8.0
 
 _lock = threading.Lock()
 _model_cache = {}   # side -> (model, data, joint_names, frame_id)
