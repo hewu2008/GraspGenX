@@ -354,15 +354,18 @@ def move_arm_to_grasp(robot, target_pos, target_quat, arm=TARGET_ARM):
         f"quaternion={target_abs_quat.tolist()}"
     )
 
-    # Stage 1: rotate in place to the grasp orientation, keeping position.
+    # Stage 1: rotate in place HALFWAY to the grasp orientation (position kept).
+    # The remaining half is finished during Stage 2's translation to the
+    # pre-grasp point, so no single stage carries a large pure rotation.
     pre_xyz = (target_abs - 0.10 * approach_dir).tolist()
+    mid_quat = Slerp([0, 1], R.from_quat([arm_quat_rel, target_abs_quat]))(0.5).as_quat().tolist()
     logger.info(
-        f"[Move] Rotate in place to grasp orientation (position unchanged): "
-        f"pos={list(arm_pos_rel)}, quat={target_abs_quat.tolist()}"
+        f"[Move] Rotate in place half-angle to grasp orientation "
+        f"(position unchanged): pos={list(arm_pos_rel)}, quat(mid)={mid_quat}"
     )
     import pdb; pdb.set_trace()
     _move_arm_to_pose_adaptive(robot, arm, arm_pos_rel, arm_quat_rel,
-                      arm_pos_rel, target_abs_quat.tolist())
+                      arm_pos_rel, mid_quat)
 
     logger.info(
         f"[Move] Near pre-grasp waypoint: "
