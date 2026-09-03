@@ -44,6 +44,27 @@ from .logging_utils import get_logger
 
 logger = get_logger(__name__)
 
+_PHASE_BAR = "=" * 70
+
+
+def _phase_title(title: str) -> None:
+    """Print a prominent separator highlighting the start of a distinct phase."""
+    title = f"==  {title}  "
+    logger.info(_PHASE_BAR)
+    logger.info(title + "=" * max(0, 70 - len(title)))
+
+
+def _phase_end() -> None:
+    """Print a thin separator marking the end of a pipeline phase."""
+    logger.info("-" * 70)
+
+
+def _sub_sep(title: str = "") -> None:
+    """Print a light in-phase separator, optionally annotated with a subtitle."""
+    logger.info("-" * 70)
+    if title:
+        logger.info(f"   -- {title}")
+
 
 def approach_workspace(robot, drive_chassis=True):
     """Drive the chassis to the workspace and bring the arm to the ready pose.
@@ -117,6 +138,7 @@ def execute_grasp_all_objects_wrist(
     labels = list(grasps_data.keys())
     logger.info(f"[Grasp] Picking {len(labels)} {target_description}(s) in order: {labels} using {gripper_name}")
     for obj_label in labels:
+        _phase_title(f"Grasp Cycle: {obj_label} ({target_description})")
         data = grasps_data[obj_label]
         grasps = data.get("grasps")
         conf = data.get("conf")
@@ -161,6 +183,8 @@ def execute_grasp_all_objects_wrist(
                 continue
             best_idx = picked
 
+        _sub_sep(f"Candidate selected (idx={best_idx}); resolving grasp target")
+
         T_world = np.asarray(grasps[best_idx], dtype=np.float64)  # grasp pose (world)
         T_cam = cam_pose_inv @ T_world  # world -> camera frame
 
@@ -193,11 +217,15 @@ def execute_grasp_all_objects_wrist(
             f"target_dist={target_dist:.4f}"
         )
 
+        _sub_sep(f"Executing grasp for {obj_label}")
+
         if not dry_run:
             grasp_object(robot, target_pos, target_quat, arm=arm, gripper_motor=gripper_motor)
         logger.info(f"[Grasp] {obj_label} ({target_description}): grasped & placed.")
+        _phase_end()
 
     logger.info(f"[Grasp] All {target_description}(s) grasped & placed.")
+    logger.info(_PHASE_BAR)
 
 def connect_robot(mode, drive_chassis):
     """Connect, initialize and move the robot to the observation posture.
@@ -300,6 +328,7 @@ def run_visualization(visualize, left_scene, viz_data_left, right_scene, viz_dat
 def execute_wrist_grasps(robot, mode, left_scene, viz_data_left, right_scene, viz_data_right):
     """Execute the grasp+place cycles for both arms from their wrist camera results."""
     if _has_grasps(viz_data_left, LEFT_GRIPPER_NAME):
+        _phase_title(f"LEFT-ARM Grasp Batch (targets: {LEFT_TARGET_CLASSES})")
         logger.info(f"[Main] Executing left-hand grasp(s) for {LEFT_TARGET_CLASSES}...")
         execute_grasp_all_objects_wrist(
             robot=robot,
@@ -315,6 +344,7 @@ def execute_wrist_grasps(robot, mode, left_scene, viz_data_left, right_scene, vi
         logger.info(f"[Main] No left-hand grasps for {LEFT_TARGET_CLASSES} to execute.")
 
     if _has_grasps(viz_data_right, RIGHT_GRIPPER_NAME):
+        _phase_title(f"RIGHT-ARM Grasp Batch (targets: {RIGHT_TARGET_CLASSES})")
         logger.info(f"[Main] Executing right-hand grasp(s) for {RIGHT_TARGET_CLASSES}...")
         execute_grasp_all_objects_wrist(
             robot=robot,
