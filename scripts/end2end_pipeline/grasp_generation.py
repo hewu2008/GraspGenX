@@ -36,12 +36,19 @@ GRASP_MOE_OBB_DENSITY = "dense"
 GRASP_MOE_OBB_POSITION_SPACING_CM = 1.0
 GRASP_MIN_OBJ_POINTS = 100
 GRASP_COLLISION_THRESHOLD = 0.001
-# Camera-frame orientation filter: keep only grasps whose pitch/roll (folded
-# to [-90,90]) stay within +/-GRASP_MAX_PITCH_DEG/GRASP_MAX_ROLL_DEG and whose
-# yaw stays within +/-GRASP_MAX_YAW_DEG. Disable with False to keep all poses.
+# Camera-frame orientation filter: keep only grasps whose roll stays within
+# +/-GRASP_MAX_ROLL_DEG, whose pitch stays within
+# [GRASP_PITCH_MIN_DEG, GRASP_PITCH_MAX_DEG] and whose yaw stays within
+# +/-GRASP_MAX_YAW_DEG. Disable with False to keep all poses.
+#
+# The pitch range is intentionally ASYMMETRIC: real-scene data shows positive
+# camera-frame pitch correlates with IK solutions sitting at/against the wrist
+# joint limits (and with bad execution), while negative/small pitch grasps have
+# comfortable margins. Positive-pitch grasps are therefore capped at +5 deg.
 GRASP_FILTER_ORIENTATION = True
 GRASP_MAX_ROLL_DEG = 20.0
-GRASP_MAX_PITCH_DEG = 20.0
+GRASP_PITCH_MIN_DEG = -20.0
+GRASP_PITCH_MAX_DEG = 5.0
 GRASP_MAX_YAW_DEG = 90.0
 GRASP_MAX_SCENE_POINTS = 8192
 GRASP_NUM_COLLISION_SAMPLES = 4000
@@ -227,9 +234,12 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
 
             # Pitch/roll/yaw filter in the CAMERA frame. A top-down grasp is
             # ~vertical, so its euler_xyz first angle (roll) is ~180 deg (or 0
-            # deg) about the approach axis -- an equivalent pose. We fold
-            # roll/pitch into [-90,90] and keep only grasps whose pitch and
-            # roll stay within +/-20 deg and whose yaw stays within +/-90 deg.
+            # deg) about the approach axis -- an equivalent pose. We keep only
+            # grasps whose roll stays within +/-20 deg, whose pitch stays within
+            # [-20, +5] deg and whose yaw stays within +/-90 deg. The pitch
+            # range is asymmetric: positive-pitch (camera-frame) grasps tend to
+            # sit against the wrist joint limits and execute poorly, so they are
+            # capped at +5 deg.
             if GRASP_FILTER_ORIENTATION and len(grasps) > 0:
                 T_world_cam = np.linalg.inv(scene["camera_pose"])
                 grasps_cam = T_world_cam @ grasps  # (K,4,4) world -> camera
@@ -239,7 +249,8 @@ def generate_and_save_grasps(scene_dir, gripper_names=GRASP_GRIPPERS, assets_dir
                 roll, pitch, yaw = eul[:, 0], eul[:, 1], eul[:, 2]
                 mask = (
                     (np.abs(roll) <= GRASP_MAX_ROLL_DEG)
-                    & (np.abs(pitch) <= GRASP_MAX_PITCH_DEG)
+                    & (pitch >= GRASP_PITCH_MIN_DEG)
+                    & (pitch <= GRASP_PITCH_MAX_DEG)
                     & (np.abs(yaw) <= GRASP_MAX_YAW_DEG)
                 )
                 grasps = grasps[mask]
