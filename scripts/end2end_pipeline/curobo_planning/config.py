@@ -1,0 +1,105 @@
+"""Planner tuning, grasp candidate file handling, and goal-set selection.
+
+Pure numpy; builds on the frame helpers.  No cuRobo/torch dependency.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+from .frames import (
+    filter_pose_workspace,
+    grasps_world_to_tool_base,
+    validate_grasp_poses,
+)
+
+
+@dataclass(frozen=True)
+class CuroboPlannerConfig:
+    device: str = "cuda:0"
+    max_goalset: int = 16
+    num_ik_seeds: int = 32
+    num_trajopt_seeds: int = 4
+    collision_cache_mesh: int = 2
+    collision_cache_cuboid: int = 8
+    optimizer_collision_activation_distance: float = 0.01
+    approach_axis: str = "x"
+    approach_offset_m: float = 0.10
+    use_cuda_graph: bool = True
+    warmup_iterations: int = 5
+    workspace_bounds_base: tuple[float, float, float, float, float, float] | None = (
+        -1.2,
+        -1.2,
+        -0.2,
+        1.5,
+        1.2,
+        2.0,
+    )
+    random_seed: int = 123
+
+    def __post_init__(self) -> None:
+        if self.max_goalset < 1:
+            raise ValueError("max_goalset must be positive")
+        if self.num_ik_seeds < 1 or self.num_trajopt_seeds < 1:
+            raise ValueError("CuRobo seed counts must be positive")
+        if self.approach_offset_m <= 0:
+            raise ValueError("approach_offset_m must be positive")
+        if self.approach_axis not in ("x", "y", "z"):
+            raise ValueError("approach_axis must be x, y, or z")
+
+
+@dataclass(frozen=True)
+class GraspCandidates:
+    poses_world: np.ndarray
+    confidence: np.ndarray
+    tags: np.ndarray
+    source_path: Path
+
+
+def load_grasp_candidates(path: str | Path) -> GraspCandidates:
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Grasp candidate file does not exist: {source}")
+    with np.load(source, allow_pickle=False) as data:
+        if "grasps" not in data or "conf" not in data:
+            raise ValueError(f"Grasp file must contain grasps and conf: {source}")
+        poses = validate_grasp_poses(np.asarray(data["grasps"], dtype=np.float64))
+        confidence = np.asarray(data["conf"], dtype=np.float64)
+        tags = (
+            np.asarray(data["tags"], dtype="U64")
+            if "tags" in data
+            else np.full(len(poses), "", dtype="U1")
+        )
+    if confidence.shape != (len(poses),) or tags.shape != (len(poses),):
+        raise ValueError(
+            f"Grasp conf/tags must each have shape ({len(poses)},): {source}"
+        )
+    if not np.isfinite(confidence).all():
+        raise ValueError(f"Grasp confidence contains NaN or Inf: {source}")
+    return GraspCandidates(poses, confidence, tags, source.resolve())
+
+
+def select_goalset(
+    candidates: GraspCandidates,
+    *,
+    max_goalset: int,
+    world_T_base: np.ndarray,
+    grasp_T_wrist: np.ndarray,
+    workspace_bounds_base,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sort top-K grasps and return poses, confidences, and original indices."""
+
+    order = np.argsort(-candidates.confidence, kind="stable")[:max_goalset]
+    poses_base = grasps_world_to_tool_base(
+        candidates.poses_world[order], world_T_base, grasp_T_wrist
+    )
+    workspace_mask = filter_pose_workspace(poses_base, workspace_bounds_base)
+    poses_base = poses_base[workspace_mask]
+    confidence = candidates.confidence[order][workspace_mask]
+    source_indices = order[workspace_mask]
+    if len(poses_base) == 0:
+        raise ValueError("No top-K grasp candidates remain inside the planning workspace")
+    return poses_base, confidence, source_indices

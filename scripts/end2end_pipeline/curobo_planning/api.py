@@ -1,8 +1,8 @@
-"""Facade: single external interface for the cuRobo planning stack.
+"""Public API: single external interface for the cuRobo planning stack.
 
 External callers should import :class:`CuroboPlanning` from here::
 
-    from end2end_pipeline.curobo_planning.facade import CuroboPlanning
+    from end2end_pipeline.curobo_planning.api import CuroboPlanning
 
     planning = CuroboPlanning("left", full_joint_position_by_name)
     try:
@@ -18,7 +18,8 @@ External callers should import :class:`CuroboPlanning` from here::
         planning.close()
 
 The GPU-backed planner is created lazily on first use, so constructing the
-facade is safe on machines without CUDA.
+API is safe on machines without CUDA.  Importing this module does load cuRobo
+(via ``planner``), so it still requires the ``zerith_graspgen`` environment.
 """
 
 from __future__ import annotations
@@ -29,15 +30,12 @@ from typing import Literal
 
 import numpy as np
 
-from .frames import grasp_world_to_tool_base
-from .planner import (
-    CuroboGraspPlanner,
-    CuroboPlannerConfig,
-    GraspCandidates,
-    PlannedMotion,
-    save_plan_artifacts,
-)
+from .artifacts import save_plan_artifacts
+from .config import CuroboPlannerConfig, GraspCandidates
 from .constants import ZERITH_ACTIVE_JOINTS, ZERITH_CUROBO_YAML
+from .frames import grasp_world_to_tool_base
+from .planner import CuroboGraspPlanner
+from .trajectory import PlannedMotion
 
 
 class CuroboPlanning:
