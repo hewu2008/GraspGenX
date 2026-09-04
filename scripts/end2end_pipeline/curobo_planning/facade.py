@@ -34,10 +34,10 @@ from .planner import (
     CuroboGraspPlanner,
     CuroboPlannerConfig,
     GraspCandidates,
+    PlannedMotion,
     save_plan_artifacts,
 )
 from .constants import ZERITH_ACTIVE_JOINTS, ZERITH_CUROBO_YAML
-from .trajectory import PlannedMotion
 
 
 class CuroboPlanning:

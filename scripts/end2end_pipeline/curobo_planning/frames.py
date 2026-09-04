@@ -1,10 +1,8 @@
 """Frame and quaternion conversions at the GraspGenX/cuRobo boundary.
 
-Abstracted from the reviewed planning stack in
-/home/robot/tanzhen/GraspGenX/scripts/end2end_pipeline/planning_frames.py,
-keeping only the pieces the grasp planner needs (world->base->tool transform
-chain, quaternion conventions, and workspace filtering).  Pure numpy/scipy;
-no robot SDK dependency.
+Provides the world->base->tool transform chain, quaternion conventions, and
+workspace filtering used by the grasp planner.  Pure numpy/scipy; no robot SDK
+or cuRobo/torch dependency.
 """
 
 from __future__ import annotations
@@ -41,19 +39,13 @@ def invert_transform(value: np.ndarray) -> np.ndarray:
     return inverse
 
 
-def xyzw_to_wxyz(quaternion: np.ndarray) -> np.ndarray:
-    quaternion = np.asarray(quaternion, dtype=np.float64)
-    if quaternion.shape[-1] != 4 or not np.isfinite(quaternion).all():
-        raise ValueError("Quaternion must be finite with final dimension 4")
-    return quaternion[..., [3, 0, 1, 2]]
-
-
 def matrix_to_wxyz(rotation_matrix: np.ndarray) -> np.ndarray:
     matrices = np.asarray(rotation_matrix, dtype=np.float64)
     if matrices.shape[-2:] != (3, 3) or not np.isfinite(matrices).all():
         raise ValueError("Rotation matrices must be finite with shape (..., 3, 3)")
     xyzw = Rotation.from_matrix(matrices).as_quat()
-    return xyzw_to_wxyz(xyzw)
+    # scipy returns xyzw; cuRobo expects wxyz.
+    return xyzw[..., [3, 0, 1, 2]]
 
 
 def validate_grasp_poses(grasps: np.ndarray) -> np.ndarray:

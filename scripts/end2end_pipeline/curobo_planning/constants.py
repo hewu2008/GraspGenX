@@ -1,7 +1,7 @@
 """Shared constants for the cuRobo planning stack.
 
-Single source of truth for the Zerith model constants, model file paths, the
-wrist->end-effector offset, and the reviewed cuRobo commit pin.
+Single source of truth for the Zerith model constants, model file paths, and
+the wrist->end-effector offset.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 _MODEL_DIR = REPO_ROOT / "assets" / "zerith" / "curobo"
 ZERITH_CUROBO_YAML = _MODEL_DIR / "zerith.yml"
-ZERITH_PLANNING_URDF = _MODEL_DIR / "zerith_planning.urdf"
 
 ZERITH_ACTIVE_JOINTS = (
     "daogui_joint",
@@ -98,5 +97,3 @@ WRIST_T_END_EFFECTOR = np.array(
     ],
     dtype=np.float64,
 )
-
-EXPECTED_CUROBO_COMMIT = "057a96ffb1088531535f9915154f9d0dabd62428"
