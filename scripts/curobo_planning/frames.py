@@ -65,12 +65,29 @@ def grasp_world_to_tool_base(
     grasp_T_wrist: np.ndarray,
     wrist_T_end_effector: np.ndarray = WRIST_T_END_EFFECTOR,
 ) -> np.ndarray:
-    """Compute ``B_T_E = inv(W_T_B) @ W_T_G @ G_T_U @ U_T_E``."""
+    """Compute ``B_T_E = inv(W_T_B) @ W_T_G @ G_T_U @ U_T_E``.
 
+    Walks the grasp pose back up the frame chain to the robot base:
+    world -> grasp -> gripper tool -> wrist -> end-effector, each ``X_T_Y``
+    mapping a point in frame Y to frame X.  Inner indices cancel, leaving
+    ``B_T_E``: the end-effector pose expressed in the base frame.
+
+    Chain, left to right:
+      inv(world_T_base) = B_T_W       -> world points to base frame
+      world_T_grasp     = W_T_G       -> world frame to the grasp pose
+      grasp_T_wrist     = G_T_U       -> grasp/gripper tool to the wrist
+      wrist_T_end_effector = U_T_E    -> wrist to the end-effector tool frame
+    """
+
+    # B_T_E = B_T_W @ W_T_G @ G_T_U @ U_T_E, applied right to left:
     return (
+        # B_T_W: base <- world (inverse of base-in-world).
         invert_transform(world_T_base)
+        # W_T_G: world <- grasp pose (candidate's pose in the world).
         @ validate_transform(world_T_grasp, name="world_T_grasp")
+        # G_T_U: grasp <- gripper tool frame (per-candidate GraspGenX pose).
         @ validate_transform(grasp_T_wrist, name="grasp_T_wrist")
+        # U_T_E: wrist <- end-effector tool origin (default +X 0.1435 m).
         @ validate_transform(wrist_T_end_effector, name="wrist_T_end_effector")
     )
 

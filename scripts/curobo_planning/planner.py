@@ -40,7 +40,6 @@ from .diagnostics import (
     CuroboPlanningError,
     _failure_stage,
     _failure_stage_counts,
-    _solver_result_summary,
     _tensor_any,
 )
 from .frames import poses_to_curobo_arrays
@@ -134,12 +133,7 @@ class CuroboGraspPlanner:
     def update_world(self, scene) -> None:
         self.planner.update_world(scene)
 
-    def _plan_grasp_with_locked_joint_compat(
-        self,
-        *,
-        diagnostics: dict[str, object] | None = None,
-        **kwargs,
-    ):
+    def _plan_grasp_with_locked_joint_compat(self, **kwargs):
         """Call V2 plan_grasp with the reviewed commit's reduced-DOF fix.
 
         Commit 057a96f carries a scalar/horizon ``JointState.knot`` through the
@@ -169,74 +163,11 @@ class CuroboGraspPlanner:
                 active_js = active_js.unsqueeze(0)
             return active_js
 
-        original_plan_pose = None
-        current_stage = {"name": None}
-        stage_names = ("grasp_goalset", "grasp", "lift")
-        stage_index = 0
-
-        if diagnostics is not None and hasattr(self.planner, "plan_pose"):
-            diagnostics.setdefault("stages", {})
-            original_plan_pose = self.planner.plan_pose
-
-            def plan_pose_with_diagnostics(*args, **plan_kwargs):
-                nonlocal stage_index
-                stage = (
-                    stage_names[stage_index]
-                    if stage_index < len(stage_names)
-                    else f"plan_pose_{stage_index}"
-                )
-                stage_index += 1
-                stage_record: dict[str, object] = {"ik_attempts": []}
-                diagnostics["stages"][stage] = stage_record
-                previous_stage = current_stage["name"]
-                current_stage["name"] = stage
-
-                ik_solver = getattr(self.planner, "ik_solver", None)
-                original_solve_pose = getattr(ik_solver, "solve_pose", None)
-                if original_solve_pose is not None:
-
-                    def solve_pose_with_diagnostics(*ik_args, **ik_kwargs):
-                        try:
-                            ik_result = original_solve_pose(*ik_args, **ik_kwargs)
-                        except Exception as exc:
-                            stage_record["ik_attempts"].append(
-                                {
-                                    "returned": False,
-                                    "exception_type": type(exc).__name__,
-                                    "exception": str(exc),
-                                }
-                            )
-                            raise
-                        stage_record["ik_attempts"].append(
-                            _solver_result_summary(ik_result)
-                        )
-                        return ik_result
-
-                    ik_solver.solve_pose = solve_pose_with_diagnostics
-                try:
-                    plan_result = original_plan_pose(*args, **plan_kwargs)
-                    stage_record["trajectory_result"] = _solver_result_summary(
-                        plan_result
-                    )
-                    return plan_result
-                except Exception as exc:
-                    stage_record["exception_type"] = type(exc).__name__
-                    stage_record["exception"] = str(exc)
-                    raise
-                finally:
-                    if original_solve_pose is not None:
-                        ik_solver.solve_pose = original_solve_pose
-                    current_stage["name"] = previous_stage
-
-            self.planner.plan_pose = plan_pose_with_diagnostics
-
         kinematics.get_active_js = get_active_js_without_invalid_knot
         try:
             return self.planner.plan_grasp(**kwargs)
         finally:
             kinematics.get_active_js = original_get_active_js
-            if original_plan_pose is not None:
-                self.planner.plan_pose = original_plan_pose
 
     def _make_start_state(self):
         active_start = np.asarray(
@@ -334,7 +265,6 @@ class CuroboGraspPlanner:
             )
             try:
                 candidate_result = self._plan_grasp_with_locked_joint_compat(
-                    diagnostics=candidate_diagnostics,
                     grasp_poses=self._make_single_candidate_goal(pose_base),
                     current_state=self._make_start_state(),
                     plan_approach_to_grasp=False,

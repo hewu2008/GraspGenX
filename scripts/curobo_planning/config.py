@@ -47,9 +47,19 @@ class CuroboPlannerConfig:
 
 @dataclass(frozen=True)
 class GraspCandidates:
+    """Candidate grasp poses in the world frame, with scores and labels."""
+
+    # (N, 4, 4) float64 homogeneous transforms from the world frame to each
+    # candidate grasp/tool frame.
     poses_world: np.ndarray
+    # (N,) float64 grasp scores; higher is better.  Candidate selection sorts by
+    # these from highest to lowest confidence.
     confidence: np.ndarray
+    # (N,) fixed-length strings tagging each candidate (e.g. an object label),
+    # carried through to the selected motion and its artifacts.
     tags: np.ndarray
+    # Path to the candidate file this batch was loaded from (verbatim, for
+    # provenance/traceability).
     source_path: Path
 
 
@@ -87,6 +97,11 @@ def select_goalset(
     """Sort top-K grasps and return poses, confidences, and original indices."""
 
     order = np.argsort(-candidates.confidence, kind="stable")[:max_goalset]
+    # Convert to the planner's tool-at-base frame.
+    # (N, 4, 4) float64 homogeneous transforms from the world frame to each
+    # candidate grasp/tool frame.
+    # (N, 4, 4) float64 homogeneous transforms from the robot base to the world frame.
+    # (4, 4) float64 homogeneous transform from the planner's wrist frame to the grasp/tool base frame.
     poses_base = grasps_world_to_tool_base(
         candidates.poses_world[order], world_T_base, grasp_T_wrist
     )
