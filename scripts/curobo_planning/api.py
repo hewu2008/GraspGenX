@@ -113,7 +113,36 @@ class CuroboPlanning:
         object_label: str = "",
         metadata: dict[str, object] | None = None,
     ) -> PlannedMotion:
-        """Plan the trajectory directly to the best grasp candidate."""
+        """Plan a trajectory directly to the best reachable grasp candidate.
+
+        Candidates are tried from highest to lowest confidence; the first one
+        that passes IK reachability and collision planning is used.  The
+        resulting :class:`PlannedMotion` carries a single ``grasp`` trajectory
+        from the current joint snapshot to the selected candidate.
+
+        Args:
+            candidates: Grasp candidates to consider (world-frame poses,
+                confidence, tags).  At least one must be plan-able.
+            world_T_base: 4x4 homogeneous transform from the robot base to the
+                world frame.
+            grasp_T_wrist: 4x4 homogeneous transform from the planner's wrist
+                frame to the grasp/tool base frame.
+            scene_digest: Optional collision-scene identifier, stored verbatim
+                in the returned motion and its artifacts for reproducibility.
+            object_label: Optional object name, attached to the motion and used
+                in logs/diagnostics.
+            metadata: Optional caller-supplied key/value pairs; merged into the
+                returned motion's metadata alongside planner-generated fields.
+
+        Returns:
+            The planned motion containing the selected grasp trajectory and its
+            metadata.  The planner is created lazily on first use (requires
+            CUDA); ``CuroboPlanningError`` is raised if no candidate plans.
+
+        Raises:
+            CuroboPlanningError: If all candidates fail planning or cuRobo
+                returns an inconsistent result.
+        """
 
         return self.planner.plan(
             candidates,
