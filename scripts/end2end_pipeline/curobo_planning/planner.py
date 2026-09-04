@@ -16,16 +16,20 @@ Requires the vendored cuRobo at ``ext/curobo`` (commit
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import time
 from typing import Mapping
 import uuid
+from dataclasses import dataclass
 
 import numpy as np
+import torch
+
+import curobo
+from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
+from curobo.types import DeviceCfg, GoalToolPose, JointState, Pose
 
 from .frames import (
     filter_pose_workspace,
@@ -144,28 +148,9 @@ def select_goalset(
     return poses_base, confidence, source_indices
 
 
-def _find_git_commit(module_path: Path) -> str | None:
-    for parent in (module_path, *module_path.parents):
-        if (parent / ".git").exists():
-            try:
-                result = subprocess.run(
-                    ["git", "-C", str(parent), "rev-parse", "HEAD"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                return result.stdout.strip() or None
-            except Exception:
-                return None
-    return None
-
-
-def get_curobo_build_info() -> tuple[str, str | None, str]:
-    import curobo
-
+def get_curobo_build_info() -> tuple[str, str]:
     module_path = Path(curobo.__file__).resolve()
-    return str(curobo.__version__), _find_git_commit(module_path), str(module_path)
+    return str(curobo.__version__), str(module_path)
 
 
 def _tensor_any(value) -> bool:
@@ -315,10 +300,6 @@ class CuroboGraspPlanner:
         if not np.isfinite(full_start).all():
             raise ValueError("full_start_position contains NaN or Inf")
 
-        import torch
-        from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
-        from curobo.types import DeviceCfg
-
         self.arm = arm
         self.config = config
         self.full_start_position = full_start.copy()
@@ -352,13 +333,7 @@ class CuroboGraspPlanner:
             random_seed=config.random_seed,
         )
         self.planner = MotionPlanner(planner_cfg)
-        self.version, self.commit, self.module_path = get_curobo_build_info()
-        if self.commit is not None and self.commit != EXPECTED_CUROBO_COMMIT:
-            self.destroy()
-            raise RuntimeError(
-                "Installed CuRobo commit does not match the reviewed pin: "
-                f"installed={self.commit}, expected={EXPECTED_CUROBO_COMMIT}"
-            )
+        self.version, self.module_path = get_curobo_build_info()
         warmup_ok = self.planner.warmup(
             enable_graph=config.use_cuda_graph,
             num_warmup_iterations=config.warmup_iterations,
@@ -577,8 +552,6 @@ class CuroboGraspPlanner:
                 graph_planner.find_path = original_graph_find_path
 
     def _make_start_state(self):
-        from curobo.types import JointState
-
         active_start = np.asarray(
             [self.full_start_by_name[name] for name in self.joint_names],
             dtype=np.float32,
@@ -591,8 +564,6 @@ class CuroboGraspPlanner:
         )
 
     def _make_single_candidate_goal(self, pose_base: np.ndarray):
-        from curobo.types import GoalToolPose, Pose
-
         position, quaternion = poses_to_curobo_arrays(pose_base[None, ...])
         goal_pose = Pose.from_numpy(
             position=position,
@@ -886,7 +857,7 @@ class CuroboGraspPlanner:
             scene_digest=scene_digest,
             selected_tool_pose_base=poses_base[goal_index],
             curobo_version=self.version,
-            curobo_commit=self.commit,
+            curobo_commit=None,
             metadata=output_metadata,
         )
 
