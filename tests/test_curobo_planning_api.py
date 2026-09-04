@@ -29,6 +29,7 @@ from curobo_planning.api import (
     ZERITH_ACTIVE_JOINTS,
     ZERITH_CUROBO_YAML,
 )
+from curobo_planning.trajectory import PlannedMotion, TrajectorySegment
 
 
 class _FakePlanner:
@@ -252,3 +253,81 @@ def test_save_artifacts_uses_custom_yaml_path(monkeypatch):
     api = CuroboPlanning("left", _full_joint_position(), yaml_path=Path("/tmp/robot.yml"))
     api.save_artifacts("motion", Path("/tmp/out"))
     assert captured["robot_yaml_path"] == Path("/tmp/robot.yml")
+
+
+# ---------------------------------------------------------------------------
+# Print the planned result (illustrative: run with pytest -s to see output)
+# ---------------------------------------------------------------------------
+
+def test_plan_prints_result(monkeypatch):
+    """Return a populated ``PlannedMotion`` from the stub and print it.
+
+    Use ``python -m pytest tests/test_curobo_planning_api.py::test_plan_prints_result -s``
+    to see the printed planning result.
+    """
+
+    joint_names = tuple(f"j{i}" for i in range(7))
+    positions = np.zeros((10, 7))
+    object_label = "soda_can"
+    scene_digest = "scene-20260904-001"
+
+    class _ReturningPlanner(_FakePlanner):
+        def plan_grasp(self, candidates, **kwargs):
+            motion = PlannedMotion(
+                plan_id="abc123def456",
+                arm="left",
+                object_label=kwargs.get("object_label", object_label),
+                goalset_index=0,
+                source_candidate_index=3,
+                candidate_confidence=0.87,
+                approach=TrajectorySegment(
+                    name="approach", joint_names=joint_names, position=positions + 0.2,
+                    velocity=None, acceleration=None, jerk=None, dt_s=0.02,
+                ),
+                grasp=TrajectorySegment(
+                    name="grasp", joint_names=joint_names, position=positions + 0.4,
+                    velocity=None, acceleration=None, jerk=None, dt_s=0.02,
+                ),
+                status="success",
+                planning_time_s=1.2345,
+                scene_digest=kwargs.get("scene_digest", scene_digest),
+                selected_tool_pose_base=_transform([0.3, 0.2, 0.6], [0.1, -0.2, 0.4]),
+                curobo_version="0.0.1",
+                curobo_commit=None,
+                metadata={"input_candidate_count": 8},
+            )
+            self.plan_calls.append((candidates, kwargs))
+            return motion
+
+    monkeypatch.setattr("curobo_planning.api.CuroboGraspPlanner", _ReturningPlanner)
+    api = CuroboPlanning("left", _full_joint_position())
+    motion = api.plan(
+        _valid_candidates(),
+        world_T_base=_transform([0.0, 0.0, 0.0]),
+        grasp_T_wrist=_transform(),
+        object_label=object_label,
+        scene_digest=scene_digest,
+    )
+
+    print("\n=== 规划结果 (PlannedMotion) ===")
+    print(f"plan_id               : {motion.plan_id}")
+    print(f"arm / object          : {motion.arm} / {motion.object_label}")
+    print(f"status                : {motion.status}")
+    print(f"planning_time_s       : {motion.planning_time_s:.3f}")
+    print(f"source_candidate_index: {motion.source_candidate_index} "
+          f"(conf={motion.candidate_confidence})")
+    print(f"scene_digest          : {motion.scene_digest}")
+    print(f"curobo_version        : {motion.curobo_version}")
+    print("--- 轨迹段 ---")
+    for segment_name, segment in (("approach", motion.approach), ("grasp", motion.grasp)):
+        print(f"[{segment_name}] waypoints={segment.waypoint_count}, dt={segment.dt_s}, "
+              f"joints={segment.joint_names}")
+        print(f"  position shape        : {segment.position.shape}")
+        print(f"  position[0]           : {segment.position[0]}")
+        print(f"  position[-1] (末端)    : {segment.position[-1]}")
+    print("--- 选中候选的工具位姿 (base 系) ---")
+    print("selected_tool_pose_base:")
+    print(motion.selected_tool_pose_base)
+
+    assert motion.status == "success"
+    assert motion.approach.joint_names == joint_names
