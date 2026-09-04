@@ -14,18 +14,7 @@ from typing import Iterable
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-
-# Fixed offset from the wrist frame controlled by ``setArm_high`` to the
-# gripper's end-effector tool frame in the planning URDF.
-WRIST_T_END_EFFECTOR = np.array(
-    [
-        [1.0, 0.0, 0.0, 0.1435],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ],
-    dtype=np.float64,
-)
+from .constants import WRIST_T_END_EFFECTOR
 
 
 def validate_transform(value: np.ndarray, *, name: str = "transform") -> np.ndarray:
@@ -137,17 +126,3 @@ def filter_pose_workspace(
     return np.all(xyz >= bounds_array[:3], axis=1) & np.all(
         xyz <= bounds_array[3:], axis=1
     )
-
-
-__all__ = [
-    "WRIST_T_END_EFFECTOR",
-    "filter_pose_workspace",
-    "grasp_world_to_tool_base",
-    "grasps_world_to_tool_base",
-    "invert_transform",
-    "matrix_to_wxyz",
-    "poses_to_curobo_arrays",
-    "validate_grasp_poses",
-    "validate_transform",
-    "xyzw_to_wxyz",
-]

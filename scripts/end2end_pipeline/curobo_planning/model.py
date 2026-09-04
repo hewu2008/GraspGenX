@@ -20,86 +20,14 @@ from typing import Any, Literal, Mapping
 
 import yaml
 
-
-ZERITH_ACTIVE_JOINTS = (
-    "daogui_joint",
-    "body_pitch_joint",
-    "body_yaw_joint",
-    "left_shoulder_pitch_joint",
-    "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint",
-    "left_elbow_joint",
-    "left_wrist_roll_joint",
-    "left_wrist_yaw_joint",
-    "left_wrist_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint",
-    "right_elbow_joint",
-    "right_wrist_roll_joint",
-    "right_wrist_yaw_joint",
-    "right_wrist_pitch_joint",
+from .constants import (
+    REPO_ROOT,
+    ZERITH_ACTIVE_JOINTS,
+    ZERITH_ARM_JOINTS,
+    ZERITH_ARM_TOOL_FRAME,
+    ZERITH_CUROBO_YAML,
+    ZERITH_LOCKED_JOINTS,
 )
-
-# Zerith H1 PRO SDK V4.0 section 2.2.3 software control limits.  These are
-# deliberately narrower than the mechanical/hard limits in the vendor URDF.
-# Both the generated cuRobo planning URDF and LOW_LEVEL execution validation
-# consume this mapping so a plan accepted by cuRobo is commandable by the SDK.
-ZERITH_SOFTWARE_POSITION_LIMITS = {
-    "daogui_joint": (0.0, 0.8),
-    "body_pitch_joint": (0.0, 1.3),
-    "body_yaw_joint": (-0.7, 0.7),
-    "left_shoulder_pitch_joint": (-2.7, 1.5),
-    "left_shoulder_roll_joint": (-0.3, 2.0),
-    "left_shoulder_yaw_joint": (-2.9, 2.9),
-    "left_elbow_joint": (-1.3, 1.5),
-    "left_wrist_roll_joint": (-2.9, 2.9),
-    "left_wrist_yaw_joint": (-1.0, 1.0),
-    "left_wrist_pitch_joint": (-1.0, 1.0),
-    "right_shoulder_pitch_joint": (-2.7, 1.5),
-    "right_shoulder_roll_joint": (-2.0, 0.3),
-    "right_shoulder_yaw_joint": (-2.9, 2.9),
-    "right_elbow_joint": (-1.3, 1.5),
-    "right_wrist_roll_joint": (-2.9, 2.9),
-    "right_wrist_yaw_joint": (-1.0, 1.0),
-    "right_wrist_pitch_joint": (-1.0, 1.0),
-}
-
-ZERITH_LOCKED_JOINTS = {
-    "left_jaw_left_finger_joint": 0.0,
-    "left_jaw_right_finger_joint": 0.0,
-    "right_jaw_left_finger_joint": 0.0,
-    "right_jaw_right_finger_joint": 0.0,
-    "neck_yaw_joint": 0.0,
-    "neck_pitch_joint": 0.0,
-    "left_middle_wheel_joint": 0.0,
-    "right_middle_wheel_joint": 0.0,
-}
-
-ZERITH_ARM_JOINTS = {
-    "left": ZERITH_ACTIVE_JOINTS[3:10],
-    "right": ZERITH_ACTIVE_JOINTS[10:17],
-}
-
-ZERITH_ARM_TOOL_FRAME = {
-    "left": "left_end_effector_link",
-    "right": "right_end_effector_link",
-}
-
-ZERITH_CONTACT_LINKS = {
-    "left": ("left_jaw_left_finger_link", "left_jaw_right_finger_link"),
-    "right": ("right_jaw_left_finger_link", "right_jaw_right_finger_link"),
-}
-
-_MODEL_DIR = Path(__file__).resolve().parents[3] / "assets" / "zerith" / "curobo"
-ZERITH_CUROBO_YAML = _MODEL_DIR / "zerith.yml"
-ZERITH_PLANNING_URDF = _MODEL_DIR / "zerith_planning.urdf"
-
-
-def get_repo_root() -> Path:
-    """Return the checkout root without consulting the working directory."""
-
-    return Path(__file__).resolve().parents[3]
 
 
 def _resolve_repo_path(value: str, repo_root: Path) -> str:
@@ -126,7 +54,7 @@ def load_curobo_config(
 
     config_path = Path(yaml_path) if yaml_path is not None else ZERITH_CUROBO_YAML
     if not config_path.is_absolute():
-        config_path = get_repo_root() / config_path
+        config_path = REPO_ROOT / config_path
     with config_path.open("r", encoding="utf-8") as stream:
         document = yaml.safe_load(stream)
 
@@ -138,12 +66,11 @@ def load_curobo_config(
     if not isinstance(kinematics, dict):
         raise ValueError(f"Invalid cuRobo robot config (missing kinematics): {config_path}")
 
-    repo_root = get_repo_root()
     for key in ("urdf_path", "asset_root_path"):
         value = kinematics.get(key)
         if not isinstance(value, str) or not value:
             raise ValueError(f"Invalid cuRobo robot config ({key} is missing): {config_path}")
-        kinematics[key] = _resolve_repo_path(value, repo_root)
+        kinematics[key] = _resolve_repo_path(value, REPO_ROOT)
 
     return robot_cfg
 
@@ -217,18 +144,3 @@ def build_single_arm_planning_config(
     kinematics["lock_joints"] = lock_joints
     kinematics["tool_frames"] = [ZERITH_ARM_TOOL_FRAME[arm]]
     return robot_cfg
-
-
-__all__ = [
-    "ZERITH_ACTIVE_JOINTS",
-    "ZERITH_ARM_JOINTS",
-    "ZERITH_ARM_TOOL_FRAME",
-    "ZERITH_CUROBO_YAML",
-    "ZERITH_CONTACT_LINKS",
-    "ZERITH_LOCKED_JOINTS",
-    "ZERITH_PLANNING_URDF",
-    "ZERITH_SOFTWARE_POSITION_LIMITS",
-    "get_repo_root",
-    "build_single_arm_planning_config",
-    "load_curobo_config",
-]

@@ -33,14 +33,15 @@ from .frames import (
     poses_to_curobo_arrays,
     validate_grasp_poses,
 )
-from .model import (
+from .constants import (
+    EXPECTED_CUROBO_COMMIT,
     ZERITH_ARM_JOINTS,
     ZERITH_ARM_TOOL_FRAME,
     ZERITH_CONTACT_LINKS,
     ZERITH_CUROBO_YAML,
     ZERITH_SOFTWARE_POSITION_LIMITS,
-    build_single_arm_planning_config,
 )
+from .model import build_single_arm_planning_config
 from .trajectory import (
     PlannedMotion,
     TrajectorySegment,
@@ -52,7 +53,6 @@ from .trajectory import (
 from ..logging_utils import get_logger
 
 
-EXPECTED_CUROBO_COMMIT = "057a96ffb1088531535f9915154f9d0dabd62428"
 logger = get_logger(__name__)
 
 
@@ -322,7 +322,7 @@ class CuroboGraspPlanner:
         self.arm = arm
         self.config = config
         self.full_start_position = full_start.copy()
-        from .model import ZERITH_ACTIVE_JOINTS
+        from .constants import ZERITH_ACTIVE_JOINTS
 
         self.full_start_by_name = dict(zip(ZERITH_ACTIVE_JOINTS, full_start.tolist()))
         self.robot_cfg = build_single_arm_planning_config(
@@ -972,16 +972,3 @@ def save_plan_artifacts(
         [motion.approach, motion.grasp], output_dir / "trajectory.png"
     )
     return output_dir
-
-
-__all__ = [
-    "CuroboGraspPlanner",
-    "CuroboPlanningError",
-    "CuroboPlannerConfig",
-    "EXPECTED_CUROBO_COMMIT",
-    "GraspCandidates",
-    "get_curobo_build_info",
-    "load_grasp_candidates",
-    "save_plan_artifacts",
-    "select_goalset",
-]

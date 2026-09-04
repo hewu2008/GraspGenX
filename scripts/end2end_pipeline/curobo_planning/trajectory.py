@@ -229,14 +229,3 @@ def save_trajectory_plot(
     fig.savefig(destination)
     plt.close(fig)
     return destination
-
-
-__all__ = [
-    "ArmName",
-    "PlannedMotion",
-    "TrajectorySegment",
-    "save_trajectory_plot",
-    "to_numpy",
-    "trim_curobo_trajectory",
-    "validate_trajectory_limits",
-]

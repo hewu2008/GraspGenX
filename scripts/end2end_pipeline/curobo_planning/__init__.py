@@ -30,15 +30,14 @@ from .grasp_planner import (
     save_plan_artifacts,
     select_goalset,
 )
-from .model import (
+from .constants import (
     ZERITH_ACTIVE_JOINTS,
     ZERITH_ARM_JOINTS,
     ZERITH_CUROBO_YAML,
     ZERITH_PLANNING_URDF,
     ZERITH_SOFTWARE_POSITION_LIMITS,
-    build_single_arm_planning_config,
-    load_curobo_config,
 )
+from .model import build_single_arm_planning_config, load_curobo_config
 from .trajectory import PlannedMotion, TrajectorySegment
 
 __all__ = [

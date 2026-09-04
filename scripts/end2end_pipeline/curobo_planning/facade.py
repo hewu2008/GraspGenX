@@ -37,10 +37,8 @@ from .grasp_planner import (
     GraspCandidates,
     save_plan_artifacts,
 )
-from .model import ZERITH_ACTIVE_JOINTS, ZERITH_CUROBO_YAML
+from .constants import ZERITH_ACTIVE_JOINTS, ZERITH_CUROBO_YAML
 from .trajectory import PlannedMotion
-
-__all__ = ["CuroboPlanning"]
 
 
 class CuroboPlanning:
