@@ -47,7 +47,7 @@ import os
 
 import numpy as np
 
-from .config import (
+from end2end_pipeline.config import (
     WAIST_NORMAL_Z,
     WAIST_PITCH,
     LEFT_ARM,
@@ -57,10 +57,10 @@ from .config import (
     LEFT_GRIPPER_NAME,
     RIGHT_GRIPPER_NAME,
 )
-from .robot_motion import prepare_robot_posture, move_arm_to_ready_pose
-from .grasp_executor import resolve_grasp_target_hand, grasp_object
-from .camera_pose import compute_hand_camera_pose
-from .logging_utils import get_logger
+from end2end_pipeline.robot_motion import prepare_robot_posture, move_arm_to_ready_pose
+from end2end_pipeline.grasp_executor import resolve_grasp_target_hand, grasp_object
+from end2end_pipeline.camera_pose import compute_hand_camera_pose
+from end2end_pipeline.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
