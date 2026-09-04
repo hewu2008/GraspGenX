@@ -12,9 +12,11 @@ import importlib
 import time
 from typing import Mapping
 
+import numpy as np
+
 from .calibration import JointCalibration
 from .exceptions import ConfigurationError
-from .low_level import LowLevelRobot
+from .low_level import LowLevelRobot, WaistPose
 
 
 def _load_real_sdk_module():
@@ -76,3 +78,48 @@ def create_low_level_robot(
         position_limits=position_limits,
         clock=clock,
     )
+
+
+def prepare_robot_posture(
+    robot: LowLevelRobot,
+    cur_waist_z: float,
+    cur_waist_pitch: float,
+    tar_waist_z: float,
+    tar_waist_pitch: float,
+    *,
+    duration: float = 3.0,
+    rate: float = 500.0,
+) -> None:
+    """Move the waist to the initial observation posture (LOW_LEVEL version).
+
+    Port of ``end2end_pipeline.robot_motion.prepare_robot_posture`` onto the
+    low-level driver.  The waist Z (``daogui_joint``) and waist pitch
+    (``body_pitch_joint``) are interpolated sequentially from ``cur_*`` to
+    ``tar_*`` (Z first, then pitch), mirroring the high-level two-loop flow.
+    Every tick composes the waist pose onto the current non-waist snapshot via
+    ``arm_pose_to_joint_position`` and commands all 17 joints via
+    ``set_waist_high`` (a low-level tick cannot move the waist alone).
+    """
+    steps = max(1, int(duration * rate))
+    dt = 1.0 / rate
+
+    base = robot.read_feedback().model_position.copy()
+    waist_pose = WaistPose(z=cur_waist_z, pitch=cur_waist_pitch)
+    diff_z = (tar_waist_z - cur_waist_z) / steps
+    diff_pitch = (tar_waist_pitch - cur_waist_pitch) / steps
+
+    def send():
+        position = robot.arm_pose_to_joint_position(waist_pose, base_position=base)
+        robot.set_waist_high(position)
+
+    for _ in range(steps):
+        waist_pose.z += diff_z
+        send()
+        time.sleep(dt)
+
+    for _ in range(steps):
+        waist_pose.pitch += diff_pitch
+        send()
+        time.sleep(dt)
+
+    time.sleep(1.5)

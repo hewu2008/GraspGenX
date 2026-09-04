@@ -47,6 +47,30 @@ from .calibration import JointCalibration
 
 Clock = Callable[[], float]
 
+# Waist joints in the 17-D model order (see ZERITH_ACTIVE_JOINTS).
+_WAIST_Z_INDEX = ZERITH_ACTIVE_JOINTS.index("daogui_joint")
+_WAIST_PITCH_INDEX = ZERITH_ACTIVE_JOINTS.index("body_pitch_joint")
+_WAIST_YAW_INDEX = ZERITH_ACTIVE_JOINTS.index("body_yaw_joint")
+
+
+@dataclass
+class WaistPose:
+    """Waist posture with the SDK ``ArmPose`` field layout (SDK-independent).
+
+    Only ``z`` / ``pitch`` / ``yaw`` affect the waist joints (``daogui_joint`` /
+    ``body_pitch_joint`` / ``body_yaw_joint``); ``x`` / ``y`` / ``roll`` are kept
+    for parity with the SDK so a :class:`WaistPose` can stand in for an
+    ``ArmPose`` in tests / sim without the zerith env.  Mutable so callers can
+    interpolate a field in place, like the high-level flow does.
+    """
+
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    roll: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+
 
 @dataclass(frozen=True)
 class MotorFeedback:
@@ -361,6 +385,46 @@ class LowLevelRobot:
                 failures.append(f"{joint_name}: returned false")
         if failures:
             raise CommandError(f"joint command failures: {'; '.join(failures)}", failures)
+
+    def arm_pose_to_joint_position(
+        self,
+        arm_pose,
+        base_position: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Convert a waist pose to a 17-D model position vector.
+
+        Low-level analog of the SDK's ``armPoseToArmEndPose`` for the waist:
+        waist Z / pitch / yaw map onto ``daogui_joint`` / ``body_pitch_joint`` /
+        ``body_yaw_joint`` (``x``/``y``/``roll`` do not affect the waist).
+        Unlike ``setWaist_high`` a low-level tick must command all 17 joints, so
+        the remaining joints are held at ``base_position`` (default: the current
+        feedback snapshot).
+
+        Args:
+            arm_pose: duck-typed pose exposing ``z``/``pitch``/``yaw``; both the
+                SDK ``ArmPose`` and :class:`WaistPose` work.
+            base_position: 17-D model position whose non-waist entries are kept.
+
+        Returns:
+            A 17-D model position vector with the waist joints overridden.
+        """
+        if base_position is None:
+            base_position = self.read_feedback().model_position
+        position = np.asarray(base_position, dtype=np.float64).copy()
+        position[_WAIST_Z_INDEX] = float(arm_pose.z)
+        position[_WAIST_PITCH_INDEX] = float(arm_pose.pitch)
+        position[_WAIST_YAW_INDEX] = float(arm_pose.yaw)
+        return position
+
+    def set_waist_high(self, position: np.ndarray) -> None:
+        """Command all 17 joints once from a model position vector.
+
+        Low-level analog of the SDK's ``setWaist_high``: sends a single tick via
+        :meth:`command_joints` with zero velocity.  The waist values must already
+        be merged into ``position`` (e.g. via :meth:`arm_pose_to_joint_position`),
+        since a low-level tick cannot command the waist alone.
+        """
+        self.command_joints(position, np.zeros(NUM_ACTIVE_JOINTS))
 
     def _gripper_id(self, arm: str) -> int:
         if arm not in GRIPPER_MOTOR_ID:
