@@ -1,7 +1,6 @@
 """Facade: single external interface for the cuRobo planning stack.
 
-External callers should import :class:`CuroboPlanning` from here (or from the
-package root, which re-exports it)::
+External callers should import :class:`CuroboPlanning` from here::
 
     from end2end_pipeline.curobo_planning.facade import CuroboPlanning
 
@@ -31,7 +30,7 @@ from typing import Literal
 import numpy as np
 
 from .frames import grasp_world_to_tool_base
-from .grasp_planner import (
+from .planner import (
     CuroboGraspPlanner,
     CuroboPlannerConfig,
     GraspCandidates,
