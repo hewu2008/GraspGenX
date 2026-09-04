@@ -1,59 +1,20 @@
 """SDK-independent constants for the Zerith LOW_LEVEL driver.
 
-Values mirror ``curobo_planning.constants`` (and the reference tanzhen repo's
-``joint_state_bridge.py`` / ``zerith_curobo.py``) so that a cuRobo-accepted
-joint trajectory is commandable by the SDK.  This package must NOT import
-``curobo_planning``; the equality with the planning package is asserted in
-``tests/test_curobo_sdk_constants.py`` instead.
+The active-joint order and software position limits are shared with the cuRobo
+planning stack, so this module re-uses them from ``curobo_planning.constants``
+(the single source of truth) rather than duplicating them.  The remaining
+constants (motor mapping, motor-ID whitelist, gripper IDs, MIT sentinels,
+feedback tolerance, mode/init states) are specific to the SDK low-level driver.
 """
 
 from __future__ import annotations
 
-# Keep in sync with curobo_planning.constants.ZERITH_ACTIVE_JOINTS.
-ZERITH_ACTIVE_JOINTS = (
-    "daogui_joint",
-    "body_pitch_joint",
-    "body_yaw_joint",
-    "left_shoulder_pitch_joint",
-    "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint",
-    "left_elbow_joint",
-    "left_wrist_roll_joint",
-    "left_wrist_yaw_joint",
-    "left_wrist_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint",
-    "right_elbow_joint",
-    "right_wrist_roll_joint",
-    "right_wrist_yaw_joint",
-    "right_wrist_pitch_joint",
+from curobo_planning.constants import (
+    ZERITH_ACTIVE_JOINTS,
+    ZERITH_SOFTWARE_POSITION_LIMITS,
 )
 
 NUM_ACTIVE_JOINTS = len(ZERITH_ACTIVE_JOINTS)  # 17
-
-# Keep in sync with curobo_planning.constants.ZERITH_SOFTWARE_POSITION_LIMITS.
-# Zerith H1 PRO SDK V4.0 section 2.2.3 software control limits, deliberately
-# narrower than the mechanical limits in the vendor URDF.
-ZERITH_SOFTWARE_POSITION_LIMITS = {
-    "daogui_joint": (0.0, 0.8),
-    "body_pitch_joint": (0.0, 1.3),
-    "body_yaw_joint": (-0.7, 0.7),
-    "left_shoulder_pitch_joint": (-2.7, 1.5),
-    "left_shoulder_roll_joint": (-0.3, 2.0),
-    "left_shoulder_yaw_joint": (-2.9, 2.9),
-    "left_elbow_joint": (-1.3, 1.5),
-    "left_wrist_roll_joint": (-2.9, 2.9),
-    "left_wrist_yaw_joint": (-1.0, 1.0),
-    "left_wrist_pitch_joint": (-1.0, 1.0),
-    "right_shoulder_pitch_joint": (-2.7, 1.5),
-    "right_shoulder_roll_joint": (-2.0, 0.3),
-    "right_shoulder_yaw_joint": (-2.9, 2.9),
-    "right_elbow_joint": (-1.3, 1.5),
-    "right_wrist_roll_joint": (-2.9, 2.9),
-    "right_wrist_yaw_joint": (-1.0, 1.0),
-    "right_wrist_pitch_joint": (-1.0, 1.0),
-}
 
 # Mirror reference joint_state_bridge.JOINT_TO_MOTOR_NAME.
 JOINT_TO_MOTOR_NAME: dict[str, str] = {

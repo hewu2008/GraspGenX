@@ -1,8 +1,9 @@
-"""Constant mirrors: curobo_sdk.constants must equal curobo_planning.constants.
+"""Constant guarantees: curobo_sdk.constants re-uses curobo_planning.constants.
 
-The test-only reverse dependency on ``curobo_planning`` is intentional -- the
-runtime package must not import the planning package, so equality is asserted
-here instead.
+curobo_sdk.constants now imports the shared joint order and soft position limits
+directly from ``curobo_planning.constants`` (single source of truth), so the
+equality assertions hold by construction.  This module guards the SDK-specific
+constants (motor mapping, whitelist, gripper IDs, MIT sentinels).
 """
 
 from __future__ import annotations

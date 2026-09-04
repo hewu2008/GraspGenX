@@ -21,6 +21,8 @@ import numpy as np
 
 from . import calibration as _cal
 from .constants import (
+    DEFAULT_KD,
+    DEFAULT_KP,
     EXPECTED_ACTIVE_MOTOR_IDS,
     GRIPPER_CLOSED_POSITION,
     GRIPPER_MOTOR_ID,
@@ -313,13 +315,19 @@ class LowLevelRobot:
         return control_type
 
     def _make_control(self, position: float, speed: float) -> object:
-        from ._control import make_control
+        """Build a fresh control object (MIT fields) for output ``position``/``speed``.
 
-        return make_control(
-            self._resolve_control_type(),
-            position=position,
-            speed=speed,
-        )
+        ``control_type`` is either the SDK's ``Motor_Control`` (no-arg
+        constructor) or ``FakeControl`` (all-keyword-args constructor); both are
+        instantiated bare and then the MIT fields are assigned uniformly.
+        """
+        control = self._resolve_control_type()()
+        control.Position = float(position)
+        control.Speed = float(speed)
+        control.Torque = 0.0
+        control.KP = float(DEFAULT_KP)
+        control.KD = float(DEFAULT_KD)
+        return control
 
     def command_joints(self, model_position: np.ndarray, model_velocity: np.ndarray) -> None:
         """Send all 17 joints once via setWaist_low/setArm_low (MIT fields)."""
