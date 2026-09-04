@@ -74,7 +74,7 @@ if __name__ == "__main__":
         raise SystemExit(
             run_curobo_lowlevel_replay(args.scene_dir, fake=args.fake, **common)
         )
-    from replay.replay import run_replay
+    from replay.replay_sdk_highlevel import run_replay
     raise SystemExit(
         run_replay(
             args.scene_dir,

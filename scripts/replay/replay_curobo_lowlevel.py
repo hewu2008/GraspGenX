@@ -345,7 +345,7 @@ def run_curobo_lowlevel_replay(
 ) -> int:
     """Replay the grasp plan with cuRobo planning + LOW_LEVEL SDK execution."""
     from curobo_sdk.api import create_low_level_robot
-    from replay.replay import collect_grasp_plan
+    from replay.replay_sdk_highlevel import collect_grasp_plan
 
     low = create_low_level_robot(fake=fake)
     low.ensure_connected_low_level(connect=True, init=True)
