@@ -113,9 +113,9 @@ class CuroboPlanning:
         object_label: str = "",
         metadata: dict[str, object] | None = None,
     ) -> PlannedMotion:
-        """Plan the approach->grasp trajectory for the best grasp candidate."""
+        """Plan the trajectory directly to the best grasp candidate."""
 
-        return self.planner.plan_grasp(
+        return self.planner.plan(
             candidates,
             world_T_base=world_T_base,
             grasp_T_wrist=grasp_T_wrist,

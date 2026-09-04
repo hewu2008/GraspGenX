@@ -1,10 +1,10 @@
-"""Single-arm cuRobo V2 grasp planner (approach -> grasp) for the Zerith H1.
+"""Single-arm cuRobo V2 grasp planner (direct to grasp) for the Zerith H1.
 
-The GPU-backed :class:`CuroboGraspPlanner` runs per-candidate full-chain
-planning with the reduced-DOF (``lock_joints``) compatibility shim for the
-pinned cuRobo commit's ``plan_grasp``.  Robot-model config building lives in
-``model``, tuning/candidates in ``config``, CPU post-processing in
-``trajectory``, and failure statistics in ``diagnostics``.
+The GPU-backed :class:`CuroboGraspPlanner` plans directly to each candidate
+grasp pose (no approach/lift phases) with the reduced-DOF (``lock_joints``)
+compatibility shim for the pinned cuRobo commit's ``plan_grasp``.  Robot-model
+config building lives in ``model``, tuning/candidates in ``config``, CPU
+post-processing in ``trajectory``, and failure statistics in ``diagnostics``.
 
 Requires the vendored cuRobo at ``ext/curobo`` importable in the active
 environment and a CUDA device for planner construction.
@@ -38,7 +38,6 @@ from .constants import (
 )
 from .diagnostics import (
     CuroboPlanningError,
-    _aggregate_ik_attempts,
     _failure_stage,
     _failure_stage_counts,
     _solver_result_summary,
@@ -144,7 +143,7 @@ class CuroboGraspPlanner:
         """Call V2 plan_grasp with the reviewed commit's reduced-DOF fix.
 
         Commit 057a96f carries a scalar/horizon ``JointState.knot`` through the
-        approach result, then asks ``Kinematics.get_active_js`` to reindex it as
+        planner result, then asks ``Kinematics.get_active_js`` to reindex it as
         if it had one column per joint.  It also squeezes the only batch axis
         before feeding the state to the next ``plan_pose`` call.  Together these
         cause a CUDA index assertion or an always-failed final segment for a
@@ -172,7 +171,7 @@ class CuroboGraspPlanner:
 
         original_plan_pose = None
         current_stage = {"name": None}
-        stage_names = ("grasp_goalset", "approach", "grasp", "lift")
+        stage_names = ("grasp_goalset", "grasp", "lift")
         stage_index = 0
 
         if diagnostics is not None and hasattr(self.planner, "plan_pose"):
@@ -293,7 +292,7 @@ class CuroboGraspPlanner:
             jerk_limits=jerk_limits,
         )
 
-    def plan_grasp(
+    def plan(
         self,
         candidates: GraspCandidates,
         *,
@@ -325,7 +324,7 @@ class CuroboGraspPlanner:
                 "tag": str(candidates.tags[source_index]),
             }
             logger.debug(
-                "[Plan][Candidate %d/%d] %s (cand=%d, conf=%.3f, tag=%s); planning approach->grasp",
+                "[Plan][Candidate %d/%d] %s (cand=%d, conf=%.3f, tag=%s); planning to grasp",
                 candidate_index + 1,
                 total_candidates,
                 object_label,
@@ -338,10 +337,7 @@ class CuroboGraspPlanner:
                     diagnostics=candidate_diagnostics,
                     grasp_poses=self._make_single_candidate_goal(pose_base),
                     current_state=self._make_start_state(),
-                    grasp_approach_axis=self.config.approach_axis,
-                    grasp_approach_offset=-self.config.approach_offset_m,
-                    grasp_approach_in_tool_frame=True,
-                    plan_approach_to_grasp=True,
+                    plan_approach_to_grasp=False,
                     plan_grasp_to_lift=False,
                     disable_collision_links=list(ZERITH_CONTACT_LINKS[self.arm]),
                 )
@@ -355,7 +351,7 @@ class CuroboGraspPlanner:
                 )
                 attempts.append(candidate_diagnostics)
                 planning_diagnostics = {
-                    "strategy": "sequential_full_chain",
+                    "strategy": "sequential_goalset",
                     "attempted_candidate_count": len(attempts),
                     "filtered_candidate_count": total_candidates,
                     "failure_stage_counts": _failure_stage_counts(attempts),
@@ -379,7 +375,6 @@ class CuroboGraspPlanner:
             candidate_ok = (
                 candidate_result is not None
                 and _tensor_any(candidate_result.success)
-                and _tensor_any(candidate_result.approach_success)
                 and _tensor_any(candidate_result.grasp_success)
             )
             candidate_status = (
@@ -392,19 +387,10 @@ class CuroboGraspPlanner:
                 "success": _tensor_any(
                     getattr(candidate_result, "success", None)
                 ),
-                "approach_success": _tensor_any(
-                    getattr(candidate_result, "approach_success", None)
-                ),
                 "grasp_success": _tensor_any(
                     getattr(candidate_result, "grasp_success", None)
                 ),
             }
-            approach_ik = _aggregate_ik_attempts(
-                candidate_diagnostics.get("stages", {}).get("approach")
-                if isinstance(candidate_diagnostics.get("stages"), Mapping)
-                else None
-            )
-            candidate_diagnostics["approach_ik"] = approach_ik
             if not candidate_ok:
                 stage = _failure_stage(candidate_result)
                 candidate_diagnostics["success"] = False
@@ -428,7 +414,7 @@ class CuroboGraspPlanner:
             goal_index = candidate_index
             logger.info(
                 "[Plan] Candidate %d/%d (conf=%.3f) "
-                "full chain succeeded after %d attempt(s)",
+                "planning to grasp succeeded after %d attempt(s)",
                 candidate_index + 1,
                 total_candidates,
                 confidences[candidate_index],
@@ -440,7 +426,7 @@ class CuroboGraspPlanner:
         if result is None or goal_index is None:
             stage_counts = _failure_stage_counts(attempts)
             planning_diagnostics = {
-                "strategy": "sequential_full_chain",
+                "strategy": "sequential_goalset",
                 "attempted_candidate_count": len(attempts),
                 "filtered_candidate_count": total_candidates,
                 "failure_stage_counts": stage_counts,
@@ -451,13 +437,12 @@ class CuroboGraspPlanner:
             ) or "unknown"
             raise CuroboPlanningError(
                 f"CuRobo grasp planning failed for {object_label}: all "
-                f"{len(attempts)} candidates failed full-chain planning "
-                f"({stage_text})",
+                f"{len(attempts)} candidates failed ({stage_text})",
                 planning_diagnostics,
             )
         if result.goalset_index is None:
             diagnostics = {
-                "strategy": "sequential_full_chain",
+                "strategy": "sequential_goalset",
                 "attempted_candidate_count": len(attempts),
                 "filtered_candidate_count": total_candidates,
                 "failure_stage_counts": _failure_stage_counts(attempts),
@@ -469,7 +454,7 @@ class CuroboGraspPlanner:
         internal_goal_index = int(result.goalset_index.reshape(-1)[0].item())
         if internal_goal_index != 0:
             diagnostics = {
-                "strategy": "sequential_full_chain",
+                "strategy": "sequential_goalset",
                 "attempted_candidate_count": len(attempts),
                 "filtered_candidate_count": total_candidates,
                 "failure_stage_counts": _failure_stage_counts(attempts),
@@ -481,32 +466,20 @@ class CuroboGraspPlanner:
                 diagnostics,
             )
 
-        raw_approach = result.approach_interpolated_trajectory
         raw_grasp = result.grasp_interpolated_trajectory
-        if (
-            raw_approach is not None
-            and tuple(getattr(raw_approach, "joint_names", ())) != self.joint_names
-        ):
-            raw_approach = self.planner.kinematics.get_active_js(raw_approach)
         if (
             raw_grasp is not None
             and tuple(getattr(raw_grasp, "joint_names", ())) != self.joint_names
         ):
             raw_grasp = self.planner.kinematics.get_active_js(raw_grasp)
 
-        approach = trim_curobo_trajectory(
-            raw_approach,
-            result.approach_interpolated_last_tstep,
-            name="approach",
-        )
         grasp = trim_curobo_trajectory(
             raw_grasp,
             result.grasp_interpolated_last_tstep,
             name="grasp",
         )
-        if approach.joint_names != self.joint_names or grasp.joint_names != self.joint_names:
+        if grasp.joint_names != self.joint_names:
             raise RuntimeError("CuRobo trajectory joint order changed unexpectedly")
-        self._validate_segment_limits(approach)
         self._validate_segment_limits(grasp)
 
         planner_time = wall_time
@@ -515,7 +488,7 @@ class CuroboGraspPlanner:
             {
                 "input_candidate_count": int(len(candidates.poses_world)),
                 "filtered_goalset_count": int(len(poses_base)),
-                "candidate_attempt_strategy": "sequential_full_chain",
+                "candidate_attempt_strategy": "sequential_goalset",
                 "candidate_attempts": attempts,
                 "selected_candidate_tag": str(
                     candidates.tags[source_indices[goal_index]]
@@ -529,7 +502,6 @@ class CuroboGraspPlanner:
             goalset_index=goal_index,
             source_candidate_index=int(source_indices[goal_index]),
             candidate_confidence=float(confidences[goal_index]),
-            approach=approach,
             grasp=grasp,
             status=str(result.status),
             planning_time_s=planner_time,

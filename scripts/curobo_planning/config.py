@@ -26,8 +26,6 @@ class CuroboPlannerConfig:
     collision_cache_mesh: int = 2
     collision_cache_cuboid: int = 8
     optimizer_collision_activation_distance: float = 0.01
-    approach_axis: str = "x"
-    approach_offset_m: float = 0.10
     use_cuda_graph: bool = True
     warmup_iterations: int = 5
     workspace_bounds_base: tuple[float, float, float, float, float, float] | None = (
@@ -45,10 +43,6 @@ class CuroboPlannerConfig:
             raise ValueError("max_goalset must be positive")
         if self.num_ik_seeds < 1 or self.num_trajopt_seeds < 1:
             raise ValueError("CuRobo seed counts must be positive")
-        if self.approach_offset_m <= 0:
-            raise ValueError("approach_offset_m must be positive")
-        if self.approach_axis not in ("x", "y", "z"):
-            raise ValueError("approach_axis must be x, y, or z")
 
 
 @dataclass(frozen=True)

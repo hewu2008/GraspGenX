@@ -46,7 +46,6 @@ def save_plan_artifacts(
         ),
         "candidate_confidence": np.asarray(motion.candidate_confidence),
     }
-    payload.update(_segment_payload("approach", motion.approach))
     payload.update(_segment_payload("grasp", motion.grasp))
     np.savez_compressed(output_dir / "trajectory.npz", **payload)
 
@@ -67,10 +66,6 @@ def save_plan_artifacts(
         "curobo_commit": motion.curobo_commit,
         "robot_yaml": str(yaml_path.resolve()),
         "robot_yaml_sha256": yaml_digest,
-        "approach": {
-            "dt_s": motion.approach.dt_s,
-            "waypoints": motion.approach.waypoint_count,
-        },
         "grasp": {
             "dt_s": motion.grasp.dt_s,
             "waypoints": motion.grasp.waypoint_count,
@@ -80,6 +75,6 @@ def save_plan_artifacts(
     with (output_dir / "plan.json").open("w", encoding="utf-8") as stream:
         json.dump(summary, stream, indent=2, sort_keys=True)
     save_trajectory_plot(
-        [motion.approach, motion.grasp], output_dir / "trajectory.png"
+        [motion.grasp], output_dir / "trajectory.png"
     )
     return output_dir

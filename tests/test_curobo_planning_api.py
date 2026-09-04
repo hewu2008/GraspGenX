@@ -44,7 +44,7 @@ class _FakePlanner:
         self.world_updates = []
         self.destroyed = False
 
-    def plan_grasp(self, candidates, **kwargs):
+    def plan(self, candidates, **kwargs):
         self.plan_calls.append((candidates, kwargs))
         return "motion"
 
@@ -272,7 +272,7 @@ def test_plan_prints_result(monkeypatch):
     scene_digest = "scene-20260904-001"
 
     class _ReturningPlanner(_FakePlanner):
-        def plan_grasp(self, candidates, **kwargs):
+        def plan(self, candidates, **kwargs):
             motion = PlannedMotion(
                 plan_id="abc123def456",
                 arm="left",
@@ -280,10 +280,6 @@ def test_plan_prints_result(monkeypatch):
                 goalset_index=0,
                 source_candidate_index=3,
                 candidate_confidence=0.87,
-                approach=TrajectorySegment(
-                    name="approach", joint_names=joint_names, position=positions + 0.2,
-                    velocity=None, acceleration=None, jerk=None, dt_s=0.02,
-                ),
                 grasp=TrajectorySegment(
                     name="grasp", joint_names=joint_names, position=positions + 0.4,
                     velocity=None, acceleration=None, jerk=None, dt_s=0.02,
@@ -319,15 +315,15 @@ def test_plan_prints_result(monkeypatch):
     print(f"scene_digest          : {motion.scene_digest}")
     print(f"curobo_version        : {motion.curobo_version}")
     print("--- 轨迹段 ---")
-    for segment_name, segment in (("approach", motion.approach), ("grasp", motion.grasp)):
-        print(f"[{segment_name}] waypoints={segment.waypoint_count}, dt={segment.dt_s}, "
-              f"joints={segment.joint_names}")
-        print(f"  position shape        : {segment.position.shape}")
-        print(f"  position[0]           : {segment.position[0]}")
-        print(f"  position[-1] (末端)    : {segment.position[-1]}")
+    segment = motion.grasp
+    print(f"[grasp] waypoints={segment.waypoint_count}, dt={segment.dt_s}, "
+          f"joints={segment.joint_names}")
+    print(f"  position shape        : {segment.position.shape}")
+    print(f"  position[0]           : {segment.position[0]}")
+    print(f"  position[-1] (末端)    : {segment.position[-1]}")
     print("--- 选中候选的工具位姿 (base 系) ---")
     print("selected_tool_pose_base:")
     print(motion.selected_tool_pose_base)
 
     assert motion.status == "success"
-    assert motion.approach.joint_names == joint_names
+    assert motion.grasp.joint_names == joint_names

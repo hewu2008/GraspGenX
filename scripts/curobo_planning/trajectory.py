@@ -35,7 +35,7 @@ class TrajectorySegment:
 
 @dataclass(frozen=True)
 class PlannedMotion:
-    """Serializable output of cuRobo approach/grasp planning."""
+    """Serializable output of cuRobo direct-to-grasp planning."""
 
     plan_id: str
     arm: ArmName
@@ -43,7 +43,6 @@ class PlannedMotion:
     goalset_index: int
     source_candidate_index: int
     candidate_confidence: float
-    approach: TrajectorySegment
     grasp: TrajectorySegment
     status: str
     planning_time_s: float

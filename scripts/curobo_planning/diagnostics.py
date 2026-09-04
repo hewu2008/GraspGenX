@@ -42,47 +42,16 @@ def _solver_result_summary(result) -> dict[str, object]:
     return summary
 
 
-def _aggregate_ik_attempts(
-    stage_diagnostics: Mapping[str, object] | None,
-) -> dict[str, object]:
-    attempts = (
-        list(stage_diagnostics.get("ik_attempts", ()))
-        if isinstance(stage_diagnostics, Mapping)
-        else []
-    )
-    success_counts = []
-    feasible_counts = []
-    for attempt in attempts:
-        if not isinstance(attempt, Mapping):
-            continue
-        success = attempt.get("success")
-        feasible = attempt.get("feasible")
-        if isinstance(success, Mapping):
-            success_counts.append(int(success.get("true_count", 0)))
-        if isinstance(feasible, Mapping):
-            feasible_counts.append(int(feasible.get("true_count", 0)))
-    return {
-        "attempt_count": len(attempts),
-        "any_success": any(count > 0 for count in success_counts),
-        "best_success_seed_count": max(success_counts, default=0),
-        "best_feasible_seed_count": max(feasible_counts, default=0),
-    }
-
-
 def _failure_stage(result) -> str:
     if result is None:
         return "planner"
     status = str(getattr(result, "status", "") or "").lower()
-    if "goalset" in status or "goal set" in status:
-        return "grasp_goalset"
     if "approach" in status and "failed" in status:
         return "approach"
     if "grasp pose" in status and "failed" in status:
         return "grasp"
     if "lift" in status and "failed" in status:
         return "lift"
-    if not _tensor_any(getattr(result, "approach_success", None)):
-        return "approach"
     if not _tensor_any(getattr(result, "grasp_success", None)):
         return "grasp"
     return "planner"
