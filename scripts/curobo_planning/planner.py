@@ -54,7 +54,7 @@ from .trajectory import (
     validate_trajectory_limits,
 )
 
-from end2end_pipeline.logging_utils import get_logger
+from .logging_utils import get_logger
 
 
 logger = get_logger(__name__)
