@@ -4,7 +4,7 @@ Abstracted from the reviewed planning stack in
 /home/robot/tanzhen/GraspGenX/scripts/end2end_pipeline/
 (planning_types.py + the trajectory helpers of trajectory_executor.py),
 keeping only what is needed to consume cuRobo ``plan_grasp`` output:
-trajectory trimming, limit validation, time scaling, resampling, and plots.
+trajectory trimming, limit validation, and review plots.
 Pure numpy; no cuRobo/torch import required at module load.
 """
 
@@ -182,92 +182,6 @@ def validate_trajectory_limits(
                 )
 
 
-def stretch_trajectory_time(
-    segment: TrajectorySegment,
-    *,
-    speed_scale: float,
-) -> TrajectorySegment:
-    """Apply an honest time scale before fixed-period Hermite resampling."""
-
-    if not np.isfinite(speed_scale) or not 0.0 < speed_scale <= 1.0:
-        raise ValueError("speed_scale must be finite and in (0, 1]")
-    return TrajectorySegment(
-        name=segment.name,
-        joint_names=segment.joint_names,
-        position=np.asarray(segment.position, dtype=np.float64).copy(),
-        velocity=(
-            None
-            if segment.velocity is None
-            else np.asarray(segment.velocity, dtype=np.float64) * speed_scale
-        ),
-        acceleration=(
-            None
-            if segment.acceleration is None
-            else np.asarray(segment.acceleration, dtype=np.float64) * speed_scale**2
-        ),
-        jerk=(
-            None
-            if segment.jerk is None
-            else np.asarray(segment.jerk, dtype=np.float64) * speed_scale**3
-        ),
-        dt_s=float(segment.dt_s) / speed_scale,
-    )
-
-
-def hermite_resample(
-    segment: TrajectorySegment,
-    *,
-    control_dt_s: float,
-) -> TrajectorySegment:
-    """Resample positions with cubic Hermite interpolation at a fixed period."""
-
-    if control_dt_s <= 0:
-        raise ValueError("control_dt_s must be positive")
-    q = np.asarray(segment.position, dtype=np.float64)
-    if len(q) < 2:
-        raise ValueError("At least two waypoints are required for resampling")
-    if segment.velocity is None:
-        qd = np.gradient(q, segment.dt_s, axis=0, edge_order=1)
-    else:
-        qd = np.asarray(segment.velocity, dtype=np.float64)
-    duration = (len(q) - 1) * segment.dt_s
-    tick_count = max(1, int(np.ceil(duration / control_dt_s)))
-    sample_times = np.arange(tick_count + 1, dtype=np.float64) * control_dt_s
-
-    result = np.empty((len(sample_times), q.shape[1]), dtype=np.float64)
-    for output_index, timestamp in enumerate(sample_times):
-        # If the source duration is not an integer number of control ticks,
-        # reach the endpoint at the next deadline and hold it for the remainder
-        # of that final tick.  The returned segment therefore keeps one honest,
-        # fixed dt instead of appending a shorter hidden interval.
-        interpolation_time = min(timestamp, duration)
-        interval = min(int(interpolation_time / segment.dt_s), len(q) - 2)
-        local = (interpolation_time - interval * segment.dt_s) / segment.dt_s
-        local = float(np.clip(local, 0.0, 1.0))
-        h00 = 2 * local**3 - 3 * local**2 + 1
-        h10 = local**3 - 2 * local**2 + local
-        h01 = -2 * local**3 + 3 * local**2
-        h11 = local**3 - local**2
-        result[output_index] = (
-            h00 * q[interval]
-            + h10 * segment.dt_s * qd[interval]
-            + h01 * q[interval + 1]
-            + h11 * segment.dt_s * qd[interval + 1]
-        )
-    velocity = np.gradient(result, control_dt_s, axis=0, edge_order=1)
-    acceleration = np.gradient(velocity, control_dt_s, axis=0, edge_order=1)
-    jerk = np.gradient(acceleration, control_dt_s, axis=0, edge_order=1)
-    return TrajectorySegment(
-        name=segment.name,
-        joint_names=segment.joint_names,
-        position=result,
-        velocity=velocity,
-        acceleration=acceleration,
-        jerk=jerk,
-        dt_s=control_dt_s,
-    )
-
-
 def save_trajectory_plot(
     segments: list[TrajectorySegment],
     output_path: str | Path,
@@ -321,9 +235,7 @@ __all__ = [
     "ArmName",
     "PlannedMotion",
     "TrajectorySegment",
-    "hermite_resample",
     "save_trajectory_plot",
-    "stretch_trajectory_time",
     "to_numpy",
     "trim_curobo_trajectory",
     "validate_trajectory_limits",

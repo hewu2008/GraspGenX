@@ -3,23 +3,16 @@
 Abstracted from the reviewed planning stack in
 /home/robot/tanzhen/GraspGenX/scripts/end2end_pipeline/planning_frames.py,
 keeping only the pieces the grasp planner needs (world->base->tool transform
-chain, quaternion conventions, workspace filtering, and the gripper ``G_T_U``
-base-rotation loader).  Pure numpy/scipy; no robot SDK dependency.
+chain, quaternion conventions, and workspace filtering).  Pure numpy/scipy;
+no robot SDK dependency.
 """
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
-from typing import Iterable, Literal
+from typing import Iterable
 
 import numpy as np
 from scipy.spatial.transform import Rotation
-
-from .model import get_repo_root
-
-ArmName = Literal["left", "right"]
 
 
 # Fixed offset from the wrist frame controlled by ``setArm_high`` to the
@@ -59,26 +52,11 @@ def invert_transform(value: np.ndarray) -> np.ndarray:
     return inverse
 
 
-def transform_points(transform: np.ndarray, points: np.ndarray) -> np.ndarray:
-    transform = validate_transform(transform)
-    points = np.asarray(points, dtype=np.float64)
-    if points.ndim != 2 or points.shape[1] != 3:
-        raise ValueError(f"points must have shape (N, 3), got {points.shape}")
-    return points @ transform[:3, :3].T + transform[:3, 3]
-
-
 def xyzw_to_wxyz(quaternion: np.ndarray) -> np.ndarray:
     quaternion = np.asarray(quaternion, dtype=np.float64)
     if quaternion.shape[-1] != 4 or not np.isfinite(quaternion).all():
         raise ValueError("Quaternion must be finite with final dimension 4")
     return quaternion[..., [3, 0, 1, 2]]
-
-
-def wxyz_to_xyzw(quaternion: np.ndarray) -> np.ndarray:
-    quaternion = np.asarray(quaternion, dtype=np.float64)
-    if quaternion.shape[-1] != 4 or not np.isfinite(quaternion).all():
-        raise ValueError("Quaternion must be finite with final dimension 4")
-    return quaternion[..., [1, 2, 3, 0]]
 
 
 def matrix_to_wxyz(rotation_matrix: np.ndarray) -> np.ndarray:
@@ -87,10 +65,6 @@ def matrix_to_wxyz(rotation_matrix: np.ndarray) -> np.ndarray:
         raise ValueError("Rotation matrices must be finite with shape (..., 3, 3)")
     xyzw = Rotation.from_matrix(matrices).as_quat()
     return xyzw_to_wxyz(xyzw)
-
-
-def wxyz_to_matrix(quaternion: np.ndarray) -> np.ndarray:
-    return Rotation.from_quat(wxyz_to_xyzw(quaternion)).as_matrix()
 
 
 def validate_grasp_poses(grasps: np.ndarray) -> np.ndarray:
@@ -165,79 +139,15 @@ def filter_pose_workspace(
     )
 
 
-def _candidate_config_paths(root: Path, gripper_name: str) -> list[Path]:
-    return [
-        root
-        / "gripper_descriptions"
-        / "assets"
-        / "x_grippers"
-        / gripper_name
-        / "config.json",
-        root / "assets" / "x_grippers" / gripper_name / "config.json",
-        root / "x_grippers" / gripper_name / "config.json",
-        root / gripper_name / "config.json",
-    ]
-
-
-def resolve_gripper_config_path(
-    arm: ArmName,
-    gripper_config_dir: str | Path | None = None,
-) -> Path:
-    gripper_name = f"zerith_{arm}_gripper"
-    roots: list[Path] = []
-    if gripper_config_dir is not None:
-        roots.append(Path(gripper_config_dir).expanduser())
-    env_root = os.environ.get("GRASPGENX_GRIPPER_CFG_DIR")
-    if env_root:
-        roots.append(Path(env_root).expanduser())
-    roots.append(get_repo_root() / "ext" / "gripper_descriptions")
-
-    attempted: list[Path] = []
-    for root in roots:
-        for path in _candidate_config_paths(root, gripper_name):
-            attempted.append(path)
-            if path.is_file():
-                return path.resolve()
-    attempted_text = "\n  ".join(str(path) for path in attempted)
-    raise FileNotFoundError(
-        f"Cannot find {gripper_name}/config.json. Set "
-        f"GRASPGENX_GRIPPER_CFG_DIR or --gripper-config-dir. Tried:\n  "
-        f"{attempted_text}"
-    )
-
-
-def load_gripper_base_rotation(
-    arm: ArmName,
-    gripper_config_dir: str | Path | None = None,
-) -> tuple[np.ndarray, Path]:
-    """Load the configured ``G_T_U`` base rotation for the selected gripper."""
-
-    path = resolve_gripper_config_path(arm, gripper_config_dir)
-    with path.open("r", encoding="utf-8") as stream:
-        config = json.load(stream)
-    if "base_rotation" not in config:
-        raise ValueError(f"Gripper config has no base_rotation: {path}")
-    transform = validate_transform(
-        np.asarray(config["base_rotation"], dtype=np.float64),
-        name=f"base_rotation in {path}",
-    )
-    return transform, path
-
-
 __all__ = [
     "WRIST_T_END_EFFECTOR",
     "filter_pose_workspace",
     "grasp_world_to_tool_base",
     "grasps_world_to_tool_base",
     "invert_transform",
-    "load_gripper_base_rotation",
     "matrix_to_wxyz",
     "poses_to_curobo_arrays",
-    "resolve_gripper_config_path",
-    "transform_points",
     "validate_grasp_poses",
     "validate_transform",
-    "wxyz_to_matrix",
-    "wxyz_to_xyzw",
     "xyzw_to_wxyz",
 ]

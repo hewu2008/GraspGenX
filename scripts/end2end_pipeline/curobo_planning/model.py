@@ -76,13 +76,6 @@ ZERITH_LOCKED_JOINTS = {
     "right_middle_wheel_joint": 0.0,
 }
 
-ZERITH_TOOL_FRAMES = (
-    "left_end_effector_link",
-    "right_end_effector_link",
-)
-
-ZERITH_DEFAULT_JOINT_POSITION = (0.67, 1.2, 0.0) + (0.0,) * 14
-
 ZERITH_ARM_JOINTS = {
     "left": ZERITH_ACTIVE_JOINTS[3:10],
     "right": ZERITH_ACTIVE_JOINTS[10:17],
@@ -97,13 +90,6 @@ ZERITH_CONTACT_LINKS = {
     "left": ("left_jaw_left_finger_link", "left_jaw_right_finger_link"),
     "right": ("right_jaw_left_finger_link", "right_jaw_right_finger_link"),
 }
-
-# Short aliases are convenient at call sites; the prefixed names avoid
-# ambiguity when this module is imported alongside another robot profile.
-ACTIVE_JOINTS = ZERITH_ACTIVE_JOINTS
-LOCKED_JOINTS = ZERITH_LOCKED_JOINTS
-TOOL_FRAMES = ZERITH_TOOL_FRAMES
-DEFAULT_JOINT_POSITION = ZERITH_DEFAULT_JOINT_POSITION
 
 _MODEL_DIR = Path(__file__).resolve().parents[3] / "assets" / "zerith" / "curobo"
 ZERITH_CUROBO_YAML = _MODEL_DIR / "zerith.yml"
@@ -234,20 +220,14 @@ def build_single_arm_planning_config(
 
 
 __all__ = [
-    "ACTIVE_JOINTS",
-    "DEFAULT_JOINT_POSITION",
-    "LOCKED_JOINTS",
-    "TOOL_FRAMES",
     "ZERITH_ACTIVE_JOINTS",
     "ZERITH_ARM_JOINTS",
     "ZERITH_ARM_TOOL_FRAME",
     "ZERITH_CUROBO_YAML",
     "ZERITH_CONTACT_LINKS",
-    "ZERITH_DEFAULT_JOINT_POSITION",
     "ZERITH_LOCKED_JOINTS",
     "ZERITH_PLANNING_URDF",
     "ZERITH_SOFTWARE_POSITION_LIMITS",
-    "ZERITH_TOOL_FRAMES",
     "get_repo_root",
     "build_single_arm_planning_config",
     "load_curobo_config",

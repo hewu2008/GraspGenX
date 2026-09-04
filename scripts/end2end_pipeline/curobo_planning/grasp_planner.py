@@ -607,15 +607,9 @@ class CuroboGraspPlanner:
 
     def _validate_segment_limits(self, segment: TrajectorySegment) -> None:
         limits = self.planner.kinematics.get_joint_limits()
-
-        def array(value):
-            if hasattr(value, "detach"):
-                value = value.detach().cpu().numpy()
-            return np.asarray(value, dtype=np.float64)
-
-        velocity = array(limits.velocity)
-        acceleration = array(limits.acceleration)
-        jerk = array(limits.jerk)
+        velocity = np.asarray(to_numpy(limits.velocity), dtype=np.float64)
+        acceleration = np.asarray(to_numpy(limits.acceleration), dtype=np.float64)
+        jerk = np.asarray(to_numpy(limits.jerk), dtype=np.float64)
         position_limits = {
             name: ZERITH_SOFTWARE_POSITION_LIMITS[name]
             for name in self.joint_names
