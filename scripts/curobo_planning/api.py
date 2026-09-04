@@ -2,7 +2,7 @@
 
 External callers should import :class:`CuroboPlanning` from here::
 
-    from end2end_pipeline.curobo_planning.api import CuroboPlanning
+    from curobo_planning.api import CuroboPlanning
 
     planning = CuroboPlanning("left", full_joint_position_by_name)
     try:
