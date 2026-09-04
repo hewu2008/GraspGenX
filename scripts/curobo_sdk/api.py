@@ -97,8 +97,8 @@ def prepare_robot_posture(
     (``body_pitch_joint``) are interpolated sequentially from ``cur_*`` to
     ``tar_*`` (Z first, then pitch), mirroring the high-level two-loop flow.
     Every tick composes the waist pose onto the current non-waist snapshot via
-    ``arm_pose_to_joint_position`` and commands all 17 joints via
-    ``set_waist_high`` (a low-level tick cannot move the waist alone).
+    ``waist_pose_to_joint_position`` and commands all 17 joints via
+    ``command_posture`` (a low-level tick cannot move the waist alone).
     """
     steps = max(1, int(duration * rate))
     dt = 1.0 / rate
@@ -109,8 +109,8 @@ def prepare_robot_posture(
     diff_pitch = (tar_waist_pitch - cur_waist_pitch) / steps
 
     def send():
-        position = robot.arm_pose_to_joint_position(waist_pose, base_position=base)
-        robot.set_waist_high(position)
+        position = robot.waist_pose_to_joint_position(waist_pose, base_position=base)
+        robot.command_posture(position)
 
     for _ in range(steps):
         waist_pose.z += diff_z

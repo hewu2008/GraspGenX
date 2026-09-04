@@ -58,6 +58,10 @@ _DT: float = 1.0 / _RATE_HZ
 _O_BP = np.array([0.1478, 0.0, 0.1275])
 _O_BY = np.array([2.71e-5, -1.21e-4, 0.1572])
 
+# Initial observation waist posture (mirrors end2end_pipeline.config).
+_WAIST_NORMAL_Z: float = 0.67
+_WAIST_PITCH: float = 1.2
+
 
 # ---------------------------------------------------------------------------
 # Coordinate math (self-contained, replicates the wrist-camera FK + grasps pivot)
@@ -344,12 +348,15 @@ def run_curobo_lowlevel_replay(
     fake=False,
 ) -> int:
     """Replay the grasp plan with cuRobo planning + LOW_LEVEL SDK execution."""
-    from curobo_sdk.api import create_low_level_robot
+    from curobo_sdk.api import create_low_level_robot, prepare_robot_posture
     from replay.replay_sdk_highlevel import collect_grasp_plan
 
     low = create_low_level_robot(fake=fake)
     low.ensure_connected_low_level(connect=True, init=True)
     try:
+        # Move the waist to the initial observation posture before snapshotting,
+        # so initial_snapshot / world_T_base / retract targets all use it.
+        prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
         imu_wxyz = read_imu_wxyz(low)
         initial_snapshot = np.asarray(
             low.read_feedback().model_position, dtype=np.float64

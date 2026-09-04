@@ -19,7 +19,7 @@ shift 2>/dev/null || true
 # Tee stdout+stderr to the same run.log location the pipeline uses.
 sudo -E /home/robot/miniconda3/envs/zerith_graspgen/bin/python scripts/replay/replay_grasps.py \
     --scene-dir "$SCENE_DIR" \
-    --mode highlevel \
+    --mode curobo_lowlevel \
     --no-move-chassis \
     --rounds 10 \
     --top-grasps 1 \

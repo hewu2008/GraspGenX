@@ -386,9 +386,9 @@ class LowLevelRobot:
         if failures:
             raise CommandError(f"joint command failures: {'; '.join(failures)}", failures)
 
-    def arm_pose_to_joint_position(
+    def waist_pose_to_joint_position(
         self,
-        arm_pose,
+        waist_pose,
         base_position: np.ndarray | None = None,
     ) -> np.ndarray:
         """Convert a waist pose to a 17-D model position vector.
@@ -401,7 +401,7 @@ class LowLevelRobot:
         feedback snapshot).
 
         Args:
-            arm_pose: duck-typed pose exposing ``z``/``pitch``/``yaw``; both the
+            waist_pose: duck-typed pose exposing ``z``/``pitch``/``yaw``; both the
                 SDK ``ArmPose`` and :class:`WaistPose` work.
             base_position: 17-D model position whose non-waist entries are kept.
 
@@ -411,17 +411,17 @@ class LowLevelRobot:
         if base_position is None:
             base_position = self.read_feedback().model_position
         position = np.asarray(base_position, dtype=np.float64).copy()
-        position[_WAIST_Z_INDEX] = float(arm_pose.z)
-        position[_WAIST_PITCH_INDEX] = float(arm_pose.pitch)
-        position[_WAIST_YAW_INDEX] = float(arm_pose.yaw)
+        position[_WAIST_Z_INDEX] = float(waist_pose.z)
+        position[_WAIST_PITCH_INDEX] = float(waist_pose.pitch)
+        position[_WAIST_YAW_INDEX] = float(waist_pose.yaw)
         return position
 
-    def set_waist_high(self, position: np.ndarray) -> None:
+    def command_posture(self, position: np.ndarray) -> None:
         """Command all 17 joints once from a model position vector.
 
         Low-level analog of the SDK's ``setWaist_high``: sends a single tick via
         :meth:`command_joints` with zero velocity.  The waist values must already
-        be merged into ``position`` (e.g. via :meth:`arm_pose_to_joint_position`),
+        be merged into ``position`` (e.g. via :meth:`waist_pose_to_joint_position`),
         since a low-level tick cannot command the waist alone.
         """
         self.command_joints(position, np.zeros(NUM_ACTIVE_JOINTS))
