@@ -35,6 +35,7 @@ from scipy.spatial.transform import Rotation as R
 
 from curobo_planning.config import GraspCandidates
 from curobo_planning.constants import (
+    REPO_ROOT,
     WRIST_T_END_EFFECTOR,
     ZERITH_ACTIVE_JOINTS,
     ZERITH_ARM_JOINTS,
@@ -215,7 +216,6 @@ def retract_to_ready(
     low, current_17, initial_17, cols, *, duration: float = 2.0
 ) -> None:
     """Ramp the target-arm joints back to their initial values (joint space)."""
-    import pdb; pdb.set_trace()
     current = np.asarray(current_17, dtype=np.float64)
     initial = np.asarray(initial_17, dtype=np.float64)
     if current.shape != (17,) or initial.shape != (17,):
@@ -238,7 +238,6 @@ def retract_to_ready(
         dt_s=1.0 / _RATE_HZ,
     )
     # Fill locked joints from ``initial`` (= current for non-arm slots).
-    import pdb; pdb.set_trace()
     execute_trajectory(low, segment, initial, hold_s=0.5)
 
 
@@ -373,7 +372,23 @@ def move_arms_to_ready_pose(low) -> None:
         if b_t_e is None:
             continue
         current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
-        target_7 = _solve_arm_ik(arm, current, b_t_e)
+        if arm == "right":
+            # TEST override (revert me): use the real robot's ready-pose joint
+            # feedback from assets/zerith/csv/arm_move_right_20260907_093956.csv
+            # (last row) instead of the cuRobo IK solution, to check how the
+            # model chain maps the real motor values.
+            import csv
+
+            csv_path = REPO_ROOT / "assets/zerith/csv/arm_move_right_20260907_093956.csv"
+            with csv_path.open(encoding="utf-8") as fh:
+                rows = list(csv.DictReader(fh))
+            last = rows[-1]
+            target_7 = np.asarray(
+                [float(last[f"joint_{i}_pos"]) for i in range(1, 8)],
+                dtype=np.float64,
+            )
+        else:
+            target_7 = _solve_arm_ik(arm, current, b_t_e)
         if target_7 is None:
             continue
         cols = np.asarray(
@@ -383,7 +398,7 @@ def move_arms_to_ready_pose(low) -> None:
         target_17 = current.copy()
         target_17[cols] = target_7
         logger.info(f"[Ready] {arm} ready joints: {target_7.tolist()}")
-        retract_to_ready(low, current, target_17, cols, duration=2.0)
+        retract_to_ready(low, current, target_17, cols, duration=10.0)
 
 
 # URDF origins of the base-chain joints (assets/zerith/curobo/zerith_planning.urdf),
