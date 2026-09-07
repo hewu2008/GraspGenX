@@ -28,6 +28,8 @@ from curobo_planning.constants import (
 )
 from curobo_planning.logging_utils import get_logger
 
+from pinocchio_ik.ik import _solve_arm_ik
+
 from replay.replay_curobo_lowlevel import (
     _GRIPPER_TO_ARM,
     _WAIST_NORMAL_Z,
@@ -46,41 +48,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Pinocchio IK (the core of this backend)
 # ---------------------------------------------------------------------------
-def _solve_arm_ik(arm: str, b_t_e_target: np.ndarray, seeds: int = 6) -> np.ndarray | None:
-    """Solve the target arm's 7 joint angles for an EEF pose in ``body_yaw_link``.
-
-    Uses the reduced single-arm pinocchio model (rooted at ``body_yaw_link``,
-    ending at the arm's ``*_end_effector_link``) from ``pinocchio_ik``.
-    ``b_t_e_target`` is ``B_T_E``: the EEF pose expressed in the URDF
-    ``body_yaw_link`` frame.
-
-    Returns the 7 joint angles in ``ZERITH_ARM_JOINTS[arm]`` order, or ``None``
-    if no solution converges within the model's residual tolerance.
-    """
-    from pinocchio_ik.ik import (
-        DEFAULT_RESIDUAL_TOL,
-        _load_model,
-        _solve_ik,
-    )
-
-    model_data = _load_model(arm)
-    if model_data is None:
-        logger.error(f"[IK] pinocchio model unavailable for {arm}.")
-        return None
-    model, data, _jn, frame_id, _aj, q_indices = model_data
-    target = np.asarray(b_t_e_target, dtype=np.float64)
-    q_arm, residual = _solve_ik(
-        model, data, _jn, frame_id, q_indices, target, max(1, int(seeds))
-    )
-    if q_arm is None or residual > DEFAULT_RESIDUAL_TOL:
-        logger.error(
-            f"[IK] pinocchio IK failed for {arm} ready pose "
-            f"(residual={residual:.4f})."
-        )
-        return None
-    return np.asarray(q_arm, dtype=np.float64)
-
-
 def _tool_pose_from_world_grasp(
     world_T_base: np.ndarray,
     world_grasp: np.ndarray,

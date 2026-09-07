@@ -415,6 +415,35 @@ def _solve_ik(model, data, joint_names, frame_id, q_indices, target_oM, seeds):
     return best_q, best_cost
 
 
+def _solve_arm_ik(arm: str, b_t_e_target: np.ndarray, seeds: int = DEFAULT_SEEDS) -> np.ndarray | None:
+    """Solve the target arm's 7 joint angles for an EEF pose in ``body_yaw_link``.
+
+    Uses the reduced single-arm pinocchio model (rooted at ``body_yaw_link``,
+    ending at the arm's ``*_end_effector_link``) built by :func:`_load_model`.
+    ``b_t_e_target`` is ``B_T_E``: the EEF pose expressed in the URDF
+    ``body_yaw_link`` frame.
+
+    Returns the 7 joint angles in the reduced-model joint order, or ``None``
+    if no solution converges within the model's residual tolerance.
+    """
+    model_data = _load_model(arm)
+    if model_data is None:
+        logger.error(f"[IK] pinocchio model unavailable for {arm}.")
+        return None
+    model, data, _jn, frame_id, _aj, q_indices = model_data
+    target = np.asarray(b_t_e_target, dtype=np.float64)
+    q_arm, residual = _solve_ik(
+        model, data, _jn, frame_id, q_indices, target, max(1, int(seeds))
+    )
+    if q_arm is None or residual > DEFAULT_RESIDUAL_TOL:
+        logger.error(
+            f"[IK] pinocchio IK failed for {arm} ready pose "
+            f"(residual={residual:.4f})."
+        )
+        return None
+    return np.asarray(q_arm, dtype=np.float64)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
