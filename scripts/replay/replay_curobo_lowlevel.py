@@ -275,6 +275,12 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
     pre-calibrated ``S_T_B`` (end2end_pipeline.ik_feasibility) maps the SDK
     frame into the URDF ``body_yaw_link`` frame.  Returns None when ``S_T_B``
     is not calibrated.
+
+    Per ``end2end_pipeline.robot_motion.move_arm_to_ready_pose`` the two arms
+    do NOT share a single ready target: the left arm goes to ``_READY_XYZ``
+    while the right arm mirrors the Y component
+    ``[x, -y, z]`` (the arms are physically mirrored about the body XZ plane,
+    so their SDK-motor-zero ready poses are opposite in Y).
     """
     from end2end_pipeline.ik_feasibility import get_sdkzero_to_body_offset
 
@@ -285,8 +291,11 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
             "verify_fk_against_sdk() first to move the arm to the ready pose."
         )
         return None
+    y_sign = 1.0 if str(arm).lower().startswith("l") else -1.0
     s_ready = np.eye(4, dtype=np.float64)
-    s_ready[:3, 3] = _READY_XYZ
+    s_ready[:3, 3] = [
+        _READY_XYZ[0], _READY_XYZ[1] * y_sign, _READY_XYZ[2]
+    ]
     s_ready[:3, :3] = R.from_quat(_READY_QUAT).as_matrix()
     return invert_transform(s_t_b) @ s_ready
 
