@@ -230,22 +230,12 @@ def run_pinocchio_lowlevel_replay(
     low.ensure_connected_low_level(connect=True, init=True)
     try:
         prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
-        # Diagnose the SDK-vs-URDF base-frame offset from the current static arm
-        # pose (waist-only move), so _move_arms_to_ready can map the SDK ready
-        # target into the base frame.  S_T_B itself is measured live per call.
-        if not fake:
-            from pinocchio_ik.ik import verify_fk_against_sdk
-
-            verify_fk_against_sdk(
-                low._robot, side=None, samples=3, settle_s=0.3
-            )
         _move_arms_to_ready(low)
 
-        imu_wxyz = read_imu_wxyz(low)
         initial_snapshot = np.asarray(
             low.read_feedback().model_position, dtype=np.float64
         )
-        world_T_base = build_world_T_base(imu_wxyz, initial_snapshot)
+        world_T_base = build_world_T_base(read_imu_wxyz(low), initial_snapshot)
         grasp_T_wrist = build_grasp_T_wrist()
 
         plan = collect_grasp_plan(scene_dir, grasps_dir=grasps_dir, top_grasps=top_grasps)
