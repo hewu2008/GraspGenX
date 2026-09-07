@@ -36,28 +36,30 @@ ZERITH_ACTIVE_JOINTS = (
     "right_wrist_pitch_joint",
 )
 
-# Zerith H1 PRO SDK V4.0 section 2.2.3 software control limits.  These are
-# deliberately narrower than the mechanical/hard limits in the vendor URDF.
-# Both the generated cuRobo planning URDF and LOW_LEVEL execution validation
-# consume this mapping so a plan accepted by cuRobo is commandable by the SDK.
+# Software position limits, aligned with the URDF mechanical joint limits
+# (assets/zerith/urdf/ZR_H1PRO-1.2.00.H.V4.3_URDF_2025.12.02.urdf) so that any
+# joint solution produced by the pinocchio / cuRobo IK (which clips to the URDF
+# limits) is commandable by the LOW_LEVEL SDK without a limit-violation.  Both
+# the generated cuRobo planning URDF and LOW_LEVEL execution validation consume
+# this mapping so a plan accepted by cuRobo is commandable by the SDK.
 ZERITH_SOFTWARE_POSITION_LIMITS = {
     "daogui_joint": (0.0, 0.8),
-    "body_pitch_joint": (0.0, 1.3),
-    "body_yaw_joint": (-0.7, 0.7),
-    "left_shoulder_pitch_joint": (-2.7, 1.5),
-    "left_shoulder_roll_joint": (-0.3, 2.0),
-    "left_shoulder_yaw_joint": (-2.9, 2.9),
-    "left_elbow_joint": (-1.3, 1.5),
-    "left_wrist_roll_joint": (-2.9, 2.9),
-    "left_wrist_yaw_joint": (-1.0, 1.0),
-    "left_wrist_pitch_joint": (-1.0, 1.0),
-    "right_shoulder_pitch_joint": (-2.7, 1.5),
-    "right_shoulder_roll_joint": (-2.0, 0.3),
-    "right_shoulder_yaw_joint": (-2.9, 2.9),
-    "right_elbow_joint": (-1.3, 1.5),
-    "right_wrist_roll_joint": (-2.9, 2.9),
-    "right_wrist_yaw_joint": (-1.0, 1.0),
-    "right_wrist_pitch_joint": (-1.0, 1.0),
+    "body_pitch_joint": (-0.05236, 1.309),
+    "body_yaw_joint": (-1.0472, 1.0472),
+    "left_shoulder_pitch_joint": (-2.7925, 1.5708),
+    "left_shoulder_roll_joint": (-0.5236, 2.0944),
+    "left_shoulder_yaw_joint": (-2.9671, 2.9671),
+    "left_elbow_joint": (-1.5184, 1.5708),
+    "left_wrist_roll_joint": (-2.9671, 2.9671),
+    "left_wrist_yaw_joint": (-1.0472, 1.0472),
+    "left_wrist_pitch_joint": (-1.0472, 1.0472),
+    "right_shoulder_pitch_joint": (-2.7925, 1.5708),
+    "right_shoulder_roll_joint": (-2.0944, 0.5236),
+    "right_shoulder_yaw_joint": (-2.9671, 2.9671),
+    "right_elbow_joint": (-1.5184, 1.5708),
+    "right_wrist_roll_joint": (-2.9671, 2.9671),
+    "right_wrist_yaw_joint": (-1.0472, 1.0472),
+    "right_wrist_pitch_joint": (-1.0472, 1.0472),
 }
 
 ZERITH_LOCKED_JOINTS = {
