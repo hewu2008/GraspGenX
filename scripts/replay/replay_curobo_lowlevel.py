@@ -288,7 +288,7 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
     s_ready = np.eye(4, dtype=np.float64)
     s_ready[:3, 3] = _READY_XYZ
     s_ready[:3, :3] = R.from_quat(_READY_QUAT).as_matrix()
-    return invert_transform(s_t_b) @ s_ready
+    return invert_transform(s_t_b) @ s_ready @ WRIST_T_END_EFFECTOR
 
 
 def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | None:
