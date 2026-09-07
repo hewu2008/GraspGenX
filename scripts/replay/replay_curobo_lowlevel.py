@@ -288,7 +288,7 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
     s_ready = np.eye(4, dtype=np.float64)
     s_ready[:3, 3] = _READY_XYZ
     s_ready[:3, :3] = R.from_quat(_READY_QUAT).as_matrix()
-    return invert_transform(s_t_b) @ s_ready @ WRIST_T_END_EFFECTOR
+    return invert_transform(s_t_b) @ s_ready
 
 
 def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | None:
@@ -304,7 +304,7 @@ def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | 
     """
     import torch
     from curobo.inverse_kinematics import InverseKinematics, InverseKinematicsCfg
-    from curobo.types import GoalToolPose, JointState, Pose
+    from curobo.types import GoalToolPose, Pose
     from curobo_planning.model import build_single_arm_planning_config
 
     full_by_name = dict(
@@ -328,20 +328,23 @@ def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | 
                 dtype=torch.float32,
             ),
         )
-        # Seed the LM/optimizer from the CURRENT arm config: the ready pose is
+        # Seed the LM/optimizer with the CURRENT arm config: the ready pose is
         # close to where the arm already is, and solving from the zero config
         # (default) tends to get pushed into joint limits and fail even for
-        # reachable targets.
+        # reachable targets.  ``seed_config`` is (batch, n, dof); n < num_seeds
+        # are completed with random seeds.  (``current_state`` is NOT used: it
+        # would enable the velocity-aware IK cost and crash on the (1, dof)-vs-
+        # (dof,) shape mismatch.)
         name_to_start = full_by_name
         cur_7 = np.asarray(
             [name_to_start[name] for name in ik.joint_names], dtype=np.float64
         )
-        current_state = JointState(
-            position=torch.tensor(cur_7[None, :], device="cuda", dtype=torch.float32)
+        seed_config = torch.tensor(
+            cur_7[None, None, :], device="cuda", dtype=torch.float32
         )
         result = ik.solve_pose(
             GoalToolPose.from_poses({target_link: goal_pose}, num_goalset=1),
-            current_state=current_state,
+            seed_config=seed_config,
         )
         if not bool(result.success.item()):
             logger.error(f"[IK] cuRobo IK failed for {arm} ready pose.")
