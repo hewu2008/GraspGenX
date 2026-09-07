@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _MODEL_DIR = REPO_ROOT / "assets" / "zerith" / "curobo"
 ZERITH_CUROBO_YAML = _MODEL_DIR / "zerith.yml"

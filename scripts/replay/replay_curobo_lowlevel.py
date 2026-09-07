@@ -39,7 +39,7 @@ from curobo_planning.constants import (
     ZERITH_ACTIVE_JOINTS,
     ZERITH_ARM_JOINTS,
 )
-from curobo_planning.frames import invert_transform
+from curobo_planning.frames import invert_transform, matrix_to_wxyz
 from curobo_planning.logging_utils import get_logger
 from curobo_planning.trajectory import TrajectorySegment
 
@@ -61,6 +61,12 @@ _O_BY = np.array([2.71e-5, -1.21e-4, 0.1572])
 # Initial observation waist posture (mirrors end2end_pipeline.config).
 _WAIST_NORMAL_Z: float = 0.67
 _WAIST_PITCH: float = 1.2
+
+# SDK ready pose (mirrors replay_sdk_highlevel._READY_XYZ / _READY_QUAT): the
+# wrist pose, relative to the arm motor-zero frame, that HIGH_LEVEL setArm_high
+# targets in ``move_arm_to_ready_pose``.
+_READY_XYZ = np.array([-0.1, 0.0, 0.30], dtype=np.float64)
+_READY_QUAT = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)  # identity
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +215,7 @@ def retract_to_ready(
     low, current_17, initial_17, cols, *, duration: float = 2.0
 ) -> None:
     """Ramp the target-arm joints back to their initial values (joint space)."""
+    import pdb; pdb.set_trace()
     current = np.asarray(current_17, dtype=np.float64)
     initial = np.asarray(initial_17, dtype=np.float64)
     if current.shape != (17,) or initial.shape != (17,):
@@ -231,7 +238,132 @@ def retract_to_ready(
         dt_s=1.0 / _RATE_HZ,
     )
     # Fill locked joints from ``initial`` (= current for non-arm slots).
+    import pdb; pdb.set_trace()
     execute_trajectory(low, segment, initial, hold_s=0.5)
+
+
+def _return_to_initial_pose(low, initial_17, *, duration: float = 2.0) -> None:
+    """Restore waist Z/pitch + both arms to the initial observation posture.
+
+    LOW_LEVEL analog of ``replay_sdk_highlevel._return_to_initial_pose`` (no
+    chassis motion): the waist is driven with ``prepare_robot_posture`` and both
+    arms are ramped in joint space back to their ``initial_17`` snapshot values
+    via :func:`retract_to_ready`, so the whole 17-axis vector returns to the
+    initial observation posture.
+    """
+    prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
+    current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
+    arm_cols = tuple(
+        ZERITH_ACTIVE_JOINTS.index(name)
+        for name in (ZERITH_ARM_JOINTS["left"] + ZERITH_ARM_JOINTS["right"])
+    )
+    retract_to_ready(
+        low,
+        current,
+        np.asarray(initial_17, dtype=np.float64),
+        arm_cols,
+        duration=duration,
+    )
+
+
+def _ready_pose_base(arm: str) -> np.ndarray | None:
+    """Map the SDK ready pose into the planning tool frame in the base frame.
+
+    ``B_T_E = inv(S_T_B) @ S_T_ready @ U_T_E``: ``S_T_ready`` is the SDK ready
+    pose (the wrist pose in the arm motor-zero frame that ``setArm_high``
+    targets); the pre-calibrated ``S_T_B`` (end2end_pipeline.ik_feasibility)
+    maps the SDK frame into the URDF ``body_yaw_link`` frame, and ``U_T_E``
+    adds the fixed wrist->EEF offset used by the planning URDF.  Returns None
+    when ``S_T_B`` is not calibrated.
+    """
+    from end2end_pipeline.ik_feasibility import get_sdkzero_to_body_offset
+
+    s_t_b = get_sdkzero_to_body_offset(arm)
+    if s_t_b is None:
+        logger.warning(
+            f"[Ready] No S_T_B calibration for '{arm}'; run "
+            "verify_fk_against_sdk() first to move the arm to the ready pose."
+        )
+        return None
+    s_ready = np.eye(4, dtype=np.float64)
+    s_ready[:3, 3] = _READY_XYZ
+    s_ready[:3, :3] = R.from_quat(_READY_QUAT).as_matrix()
+    return invert_transform(s_t_b) @ s_ready @ WRIST_T_END_EFFECTOR
+
+
+def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | None:
+    """cuRobo IK: solve the 7 target-arm joint angles for ``b_t_e_target``.
+
+    Mirrors the getting_started ``inverse_kinematics`` example: builds the
+    single-arm planning config with every other joint locked at ``start_17``
+    and solves for the arm's tool frame pose.  Returns the 7 joint angles in
+    model order (``ZERITH_ARM_JOINTS[arm]``), or None on failure.
+    """
+    import torch
+    from curobo.inverse_kinematics import InverseKinematics, InverseKinematicsCfg
+    from curobo.types import GoalToolPose, Pose
+    from curobo_planning.model import build_single_arm_planning_config
+
+    full_by_name = dict(
+        zip(ZERITH_ACTIVE_JOINTS, np.asarray(start_17, dtype=np.float64).tolist())
+    )
+    robot_cfg = build_single_arm_planning_config(arm, full_by_name)
+    ik = InverseKinematics(
+        InverseKinematicsCfg.create(robot=robot_cfg, num_seeds=32)
+    )
+    try:
+        target_link = ik.tool_frames[0]
+        goal_pose = Pose(
+            position=torch.tensor(
+                b_t_e_target[:3, 3][None, :], device="cuda", dtype=torch.float32
+            ),
+            quaternion=torch.tensor(
+                matrix_to_wxyz(b_t_e_target[:3, :3])[None, :],
+                device="cuda",
+                dtype=torch.float32,
+            ),
+        )
+        result = ik.solve_pose(
+            GoalToolPose.from_poses({target_link: goal_pose}, num_goalset=1)
+        )
+        if not bool(result.success.item()):
+            logger.error(f"[IK] cuRobo IK failed for {arm} ready pose.")
+            return None
+        js = np.asarray(result.js_solution.position[0, 0].cpu(), dtype=np.float64)
+        name_to_angle = dict(zip(result.js_solution.joint_names, js))
+        return np.asarray(
+            [name_to_angle[name] for name in ZERITH_ARM_JOINTS[arm]],
+            dtype=np.float64,
+        )
+    finally:
+        ik.reset_seed()
+
+
+def move_arms_to_ready_pose(low) -> None:
+    """Move both arms to the SDK ready pose (cuRobo IK + joint-space ramp).
+
+    Each arm's ready pose is converted into the base frame via ``S_T_B``,
+    solved with cuRobo IK, and ramped in joint space with
+    :func:`retract_to_ready`.  Arms without a calibrated ``S_T_B`` (or with an
+    unreachable ready pose) are skipped with a warning.
+    """
+    for arm in ("left", "right"):
+        import pdb; pdb.set_trace()
+        b_t_e = _ready_pose_base(arm)
+        if b_t_e is None:
+            continue
+        current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
+        target_7 = _solve_arm_ik(arm, current, b_t_e)
+        if target_7 is None:
+            continue
+        cols = np.asarray(
+            [ZERITH_ACTIVE_JOINTS.index(name) for name in ZERITH_ARM_JOINTS[arm]],
+            dtype=np.int64,
+        )
+        target_17 = current.copy()
+        target_17[cols] = target_7
+        logger.info(f"[Ready] {arm} ready joints: {target_7.tolist()}")
+        retract_to_ready(low, current, target_17, cols, duration=2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +489,18 @@ def run_curobo_lowlevel_replay(
         # Move the waist to the initial observation posture before snapshotting,
         # so initial_snapshot / world_T_base / retract targets all use it.
         prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
+        # Calibrate S_T_B (SDK motor-zero frame <-> URDF body_yaw_link) from the
+        # current static arm pose, so the ready-pose IK below can map the SDK
+        # ready target into the base frame.  Arms stay static here (waist-only
+        # move), which is what verify_fk_against_sdk's sampled reads require.
+        if not fake:
+            from end2end_pipeline.ik_feasibility import verify_fk_against_sdk
+            verify_fk_against_sdk(
+                low._robot, side=None, samples=3, settle_s=0.3, store=True
+            )
+        # Then move both arms to the SDK ready pose (cuRobo IK + joint-space
+        # ramp), so the initial snapshot records the full ready posture.
+        move_arms_to_ready_pose(low)
         imu_wxyz = read_imu_wxyz(low)
         initial_snapshot = np.asarray(
             low.read_feedback().model_position, dtype=np.float64
@@ -372,6 +516,8 @@ def run_curobo_lowlevel_replay(
 
         # for r in range(max(1, int(rounds))):
         #     logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
+        #     # Return waist + both arms to the initial observation posture.
+        #     _return_to_initial_pose(low, initial_snapshot)
         #     for gripper, label, _gidx, grasp4x4_world in plan:
         #         if gripper not in _GRIPPER_TO_ARM:
         #             logger.warning(
