@@ -594,7 +594,7 @@ def run_curobo_lowlevel_replay(
         if not fake:
             from pinocchio_ik.ik import verify_fk_against_sdk
             verify_fk_against_sdk(
-                low._robot, side=None, samples=3, settle_s=0.3, store=True
+                low._robot, side=None, samples=3, settle_s=0.3
             )
         # Then move both arms to the SDK ready pose (cuRobo IK + joint-space
         # ramp), so the initial snapshot records the full ready posture.
