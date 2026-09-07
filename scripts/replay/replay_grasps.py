@@ -52,9 +52,12 @@ def _parse_args():
                    help="Drive the chassis to the workspace first (default: off).")
     p.add_argument("--chassis-dist", type=float, default=0.8,
                    help="Chassis distance (m) to travel when --move-chassis is set.")
-    p.add_argument("--mode", choices=["highlevel", "curobo_lowlevel"], default="highlevel",
-                   help="Execution backend: 'highlevel' (SDK setArm_high) or "
-                        "'curobo_lowlevel' (cuRobo plan + LOW_LEVEL SDK). Default: highlevel.")
+    p.add_argument("--mode", choices=["highlevel", "curobo_lowlevel", "pinocchio_lowlevel"],
+                   default="highlevel",
+                   help="Execution backend: 'highlevel' (SDK setArm_high), "
+                        "'curobo_lowlevel' (cuRobo plan + LOW_LEVEL SDK), or "
+                        "'pinocchio_lowlevel' (pinocchio IK + LOW_LEVEL SDK). "
+                        "Default: highlevel.")
     p.add_argument("--fake", action="store_true",
                    help="curobo_lowlevel: drive a FakeSDKRobot (no hardware); "
                         "planning still requires GPU/CUDA.")
@@ -73,6 +76,11 @@ if __name__ == "__main__":
         from replay.replay_curobo_lowlevel import run_curobo_lowlevel_replay
         raise SystemExit(
             run_curobo_lowlevel_replay(args.scene_dir, fake=args.fake, **common)
+        )
+    if args.mode == "pinocchio_lowlevel":
+        from replay.replay_pinocchio_lowlevel import run_pinocchio_lowlevel_replay
+        raise SystemExit(
+            run_pinocchio_lowlevel_replay(args.scene_dir, fake=args.fake, **common)
         )
     from replay.replay_sdk_highlevel import run_replay
     raise SystemExit(
