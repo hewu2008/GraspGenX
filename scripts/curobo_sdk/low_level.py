@@ -337,7 +337,7 @@ class LowLevelRobot:
         """Return the SDK end-effector pose ``S_T_E`` (4x4) via ``getHandRelative``.
 
         The pose is expressed in the arm motor-zero (SDK) frame, matching what
-        ``setArm_high`` commands and what ``get_sdkzero_to_body_offset`` ingests.
+        ``setArm_high`` commands and what ``get_s_t_b`` ingests.
         Returns ``None`` when the backing robot (e.g. the fake SDKK robot) does
         not expose ``getHandRelative``.
         """

@@ -43,8 +43,6 @@ Run from the project root, e.g.:
         --scene-dir assets/zerith/real_scene/02_cam_left_wrist
 """
 
-import os
-
 import numpy as np
 
 from end2end_pipeline.config import (
@@ -61,6 +59,8 @@ from end2end_pipeline.robot_motion import prepare_robot_posture, move_arm_to_rea
 from end2end_pipeline.grasp_executor import resolve_grasp_target_hand, grasp_object
 from end2end_pipeline.camera_pose import compute_hand_camera_pose
 from end2end_pipeline.logging_utils import get_logger
+
+from replay.replay_common import collect_grasp_plan
 
 logger = get_logger(__name__)
 
@@ -122,44 +122,6 @@ def _return_to_initial_pose(robot):
     """Restore waist Z/pitch + both arms to the ready pose (no chassis)."""
     prepare_robot_posture(robot, 0, 0, WAIST_NORMAL_Z, WAIST_PITCH)
     move_arm_to_ready_pose(robot, [0.0, 0.0, 0.0], _READY_QUAT, _READY_XYZ, _READY_QUAT)
-
-
-def collect_grasp_plan(scene_dir, grasps_dir=None, top_grasps=1):
-    """Scan ``<grasps_dir>/{gripper}/*.npz`` and order the grasps to execute.
-
-    Each entry is ``(gripper_name, label, grasp_idx, grasp4x4)``, selected by top
-    score within each file. ``grasps_dir`` defaults to ``<scene_dir>/grasps``. If
-    ``grasps_dir`` points at a single ``.npz`` it is treated as a one-file plan.
-    """
-    grasps_dir = grasps_dir or os.path.join(scene_dir, "grasps")
-    if os.path.isfile(grasps_dir):
-        files = [grasps_dir]
-        root = os.path.dirname(grasps_dir)
-    else:
-        if not os.path.isdir(grasps_dir):
-            raise FileNotFoundError(f"Grasps dir not found: {grasps_dir}")
-        files = [
-            os.path.join(dp, f)
-            for dp, _, fns in os.walk(grasps_dir)
-            for f in fns
-            if f.endswith(".npz")
-        ]
-        root = grasps_dir
-
-    plan = []
-    for npz in sorted(files):
-        rel = os.path.relpath(npz, root)
-        parts = rel.split(os.sep)
-        gripper = parts[0] if len(parts) > 1 else "_"
-        label = os.path.splitext(parts[-1])[0]
-        data = np.load(npz)
-        grasps = data["grasps"]
-        conf = data.get("conf", None)
-        idxs = np.argsort(-conf)[: max(1, int(top_grasps))] if conf is not None else [0]
-        for i in idxs:
-            plan.append((gripper, label, int(i), np.asarray(grasps[i], dtype=np.float64)))
-    logger.info(f"[Replay] {len(plan)} grasp(s) to execute from {grasps_dir}")
-    return plan
 
 
 def world_grasp_to_hand_cam(robot, arm, grasp4x4):

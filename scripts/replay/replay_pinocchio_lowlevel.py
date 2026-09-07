@@ -3,8 +3,8 @@
 A cuRobo-free variant of ``replay_curobo_lowlevel``: instead of solving each
 goal with the cuRobo optimizer, the target-arm EEF goal (in the URDF
 ``body_yaw_link`` frame) is solved with the single-arm pinocchio IK model from
-``end2end_pipeline.ik_feasibility``, then the resulting 7 joint angles are
-ramped to in joint space and executed through the LOW_LEVEL SDK driver.
+``pinocchio_ik``, then the resulting 7 joint angles are ramped to in joint
+space and executed through the LOW_LEVEL SDK driver.
 
 Scope: this module first implements the two-arm *inverse kinematics* step
 (``_solve_arm_ik``) on top of the pinocchio reduced model, plus a full grasp
@@ -50,14 +50,14 @@ def _solve_arm_ik(arm: str, b_t_e_target: np.ndarray, seeds: int = 6) -> np.ndar
     """Solve the target arm's 7 joint angles for an EEF pose in ``body_yaw_link``.
 
     Uses the reduced single-arm pinocchio model (rooted at ``body_yaw_link``,
-    ending at the arm's ``*_end_effector_link``) from
-    ``end2end_pipeline.ik_feasibility``.  ``b_t_e_target`` is ``B_T_E``: the
-    EEF pose expressed in the URDF ``body_yaw_link`` frame.
+    ending at the arm's ``*_end_effector_link``) from ``pinocchio_ik``.
+    ``b_t_e_target`` is ``B_T_E``: the EEF pose expressed in the URDF
+    ``body_yaw_link`` frame.
 
     Returns the 7 joint angles in ``ZERITH_ARM_JOINTS[arm]`` order, or ``None``
     if no solution converges within the model's residual tolerance.
     """
-    from end2end_pipeline.ik_feasibility import (
+    from pinocchio_ik.ik import (
         DEFAULT_RESIDUAL_TOL,
         _load_model,
         _solve_ik,
@@ -126,7 +126,7 @@ def _fk_tool_pose(arm, q_7):
     Reuses ``ik_feasibility._fk_eef_pose`` (same reduced model), so the achieved
     pose matches the model that the IK solved against.
     """
-    from end2end_pipeline.ik_feasibility import _fk_eef_pose
+    from pinocchio_ik.ik import _fk_eef_pose
 
     return _fk_eef_pose(arm, np.asarray(q_7, dtype=np.float64))
 
@@ -257,18 +257,12 @@ def run_pinocchio_lowlevel_replay(
 ) -> int:
     """Replay the grasp plan with pinocchio IK + LOW_LEVEL SDK execution."""
     from curobo_sdk.api import create_low_level_robot, prepare_robot_posture
-    from replay.replay_sdk_highlevel import collect_grasp_plan
+    from replay.replay_common import collect_grasp_plan
 
     low = create_low_level_robot(fake=fake)
     low.ensure_connected_low_level(connect=True, init=True)
     try:
         prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
-        if not fake:
-            from end2end_pipeline.ik_feasibility import verify_fk_against_sdk
-
-            verify_fk_against_sdk(
-                low._robot, side=None, samples=3, settle_s=0.3, store=True
-            )
         _move_arms_to_ready(low)
 
         imu_wxyz = read_imu_wxyz(low)

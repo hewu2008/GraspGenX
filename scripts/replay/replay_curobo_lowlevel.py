@@ -265,16 +265,16 @@ def _return_to_initial_pose(low, initial_17, *, duration: float = 2.0) -> None:
     )
 
 
-def _ready_pose_base(arm: str) -> np.ndarray | None:
+def _ready_pose_base(robot, arm: str) -> np.ndarray | None:
     """Map the SDK ready pose into the planning tool frame in the base frame.
 
     ``B_T_E = inv(S_T_B) @ S_T_ready``: ``S_T_ready`` is the SDK ready pose —
     the end-effector pose in the arm motor-zero frame that ``setArm_high``
     targets and ``getHandRelative`` reports (verified: the SDK arm-end frame
     already includes the wrist->EEF offset, so no ``U_T_E`` is applied).  The
-    pre-calibrated ``S_T_B`` (end2end_pipeline.ik_feasibility) maps the SDK
-    frame into the URDF ``body_yaw_link`` frame.  Returns None when ``S_T_B``
-    is not calibrated.
+    ``S_T_B`` (pinocchio_ik.ik) is measured live from the robot's current arm
+    pose and maps the SDK frame into the URDF ``body_yaw_link`` frame.  Returns
+    None when ``S_T_B`` cannot be computed (robot must be connected/stationary).
 
     Per ``end2end_pipeline.robot_motion.move_arm_to_ready_pose`` the two arms
     do NOT share a single ready target: the left arm goes to ``_READY_XYZ``
@@ -282,9 +282,9 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
     ``[x, -y, z]`` (the arms are physically mirrored about the body XZ plane,
     so their SDK-motor-zero ready poses are opposite in Y).
     """
-    from end2end_pipeline.ik_feasibility import get_sdkzero_to_body_offset
+    from pinocchio_ik.ik import get_s_t_b
 
-    s_t_b = get_sdkzero_to_body_offset(arm)
+    s_t_b = get_s_t_b(robot, arm)
     if s_t_b is None:
         logger.warning(
             f"[Ready] No S_T_B calibration for '{arm}'; run "
@@ -398,7 +398,7 @@ def move_arms_to_ready_pose(low) -> None:
     for arm in ("left", "right"):
         import pdb; pdb.set_trace()
         _log_eef("before move")
-        b_t_e = _ready_pose_base(arm)
+        b_t_e = _ready_pose_base(low._robot, arm)
         if b_t_e is None:
             continue
         current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
@@ -579,7 +579,7 @@ def run_curobo_lowlevel_replay(
 ) -> int:
     """Replay the grasp plan with cuRobo planning + LOW_LEVEL SDK execution."""
     from curobo_sdk.api import create_low_level_robot, prepare_robot_posture
-    from replay.replay_sdk_highlevel import collect_grasp_plan
+    from replay.replay_common import collect_grasp_plan
 
     low = create_low_level_robot(fake=fake)
     low.ensure_connected_low_level(connect=True, init=True)
@@ -592,7 +592,7 @@ def run_curobo_lowlevel_replay(
         # ready target into the base frame.  Arms stay static here (waist-only
         # move), which is what verify_fk_against_sdk's sampled reads require.
         if not fake:
-            from end2end_pipeline.ik_feasibility import verify_fk_against_sdk
+            from pinocchio_ik.ik import verify_fk_against_sdk
             verify_fk_against_sdk(
                 low._robot, side=None, samples=3, settle_s=0.3, store=True
             )
