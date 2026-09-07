@@ -296,12 +296,15 @@ def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | 
 
     Mirrors the getting_started ``inverse_kinematics`` example: builds the
     single-arm planning config with every other joint locked at ``start_17``
-    and solves for the arm's tool frame pose.  Returns the 7 joint angles in
-    model order (``ZERITH_ARM_JOINTS[arm]``), or None on failure.
+    and solves for the arm's tool frame pose.  ``b_t_e_target`` is in the URDF
+    body_yaw_link frame (as produced by :func:`_ready_pose_base`); it is
+    converted into the planning model's world frame (``dipan_link``) first.
+    Returns the 7 joint angles in model order (``ZERITH_ARM_JOINTS[arm]``),
+    or None on failure.
     """
     import torch
     from curobo.inverse_kinematics import InverseKinematics, InverseKinematicsCfg
-    from curobo.types import GoalToolPose, Pose
+    from curobo.types import GoalToolPose, JointState, Pose
     from curobo_planning.model import build_single_arm_planning_config
 
     full_by_name = dict(
@@ -309,22 +312,36 @@ def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | 
     )
     robot_cfg = build_single_arm_planning_config(arm, full_by_name)
     ik = InverseKinematics(
-        InverseKinematicsCfg.create(robot=robot_cfg, num_seeds=32)
+        InverseKinematicsCfg.create(robot=robot_cfg, num_seeds=64)
     )
     try:
         target_link = ik.tool_frames[0]
+        # body_yaw_link-frame target -> planning model world frame (dipan_link).
+        d_t_e = body_yaw_to_dipan(start_17) @ np.asarray(b_t_e_target, dtype=np.float64)
         goal_pose = Pose(
             position=torch.tensor(
-                b_t_e_target[:3, 3][None, :], device="cuda", dtype=torch.float32
+                d_t_e[:3, 3][None, :], device="cuda", dtype=torch.float32
             ),
             quaternion=torch.tensor(
-                matrix_to_wxyz(b_t_e_target[:3, :3])[None, :],
+                matrix_to_wxyz(d_t_e[:3, :3])[None, :],
                 device="cuda",
                 dtype=torch.float32,
             ),
         )
+        # Seed the LM/optimizer from the CURRENT arm config: the ready pose is
+        # close to where the arm already is, and solving from the zero config
+        # (default) tends to get pushed into joint limits and fail even for
+        # reachable targets.
+        name_to_start = full_by_name
+        cur_7 = np.asarray(
+            [name_to_start[name] for name in ik.joint_names], dtype=np.float64
+        )
+        current_state = JointState(
+            position=torch.tensor(cur_7[None, :], device="cuda", dtype=torch.float32)
+        )
         result = ik.solve_pose(
-            GoalToolPose.from_poses({target_link: goal_pose}, num_goalset=1)
+            GoalToolPose.from_poses({target_link: goal_pose}, num_goalset=1),
+            current_state=current_state,
         )
         if not bool(result.success.item()):
             logger.error(f"[IK] cuRobo IK failed for {arm} ready pose.")
@@ -364,6 +381,40 @@ def move_arms_to_ready_pose(low) -> None:
         target_17[cols] = target_7
         logger.info(f"[Ready] {arm} ready joints: {target_7.tolist()}")
         retract_to_ready(low, current, target_17, cols, duration=2.0)
+
+
+# URDF origins of the base-chain joints (assets/zerith/curobo/zerith_planning.urdf),
+# used to convert body_yaw_link-frame targets into the planning model's world
+# frame (base_link = dipan_link).  Distinct from _O_BP/_O_BY above, which are the
+# wrist-camera hand-eye offsets used only by build_world_T_base.
+_O_BP_URDF = np.array([0.1518, 0.0, 0.1275])
+_O_BY_URDF = np.array([2.7149e-05, -0.00012105, 0.1572])
+
+
+def body_yaw_to_dipan(start_17) -> np.ndarray:
+    """Return ``D_T_B``: dipan_link -> body_yaw_link at the locked base joints.
+
+    The planning model roots at ``dipan_link`` (zerith.yml ``base_link``) with
+    daogui/body_pitch/body_yaw locked at ``start_17``, so an end-effector pose
+    expressed in the body_yaw_link frame must be pre-multiplied by this fixed
+    transform before feeding it to the model (``D_T_E = D_T_B @ B_T_E``).
+    """
+    by_name = dict(
+        zip(ZERITH_ACTIVE_JOINTS, np.asarray(start_17, dtype=np.float64).tolist())
+    )
+    q_lift = float(by_name["daogui_joint"])
+    q_bp = float(by_name["body_pitch_joint"])
+    q_by = float(by_name["body_yaw_joint"])
+    T = np.eye(4)
+    T[:3, :3] = (
+        R.from_euler("Y", q_bp).as_matrix() @ R.from_euler("Z", q_by).as_matrix()
+    )
+    T[:3, 3] = (
+        np.array([0.0, 0.0, q_lift])
+        + _O_BP_URDF
+        + R.from_euler("Y", q_bp).as_matrix() @ _O_BY_URDF
+    )
+    return T
 
 
 # ---------------------------------------------------------------------------
