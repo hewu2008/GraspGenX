@@ -333,6 +333,38 @@ class LowLevelRobot:
             motor_position=motor_q,
         )
 
+    def read_sdk_arm_eef(self, arm: str) -> np.ndarray | None:
+        """Return the SDK end-effector pose ``S_T_E`` (4x4) via ``getHandRelative``.
+
+        The pose is expressed in the arm motor-zero (SDK) frame, matching what
+        ``setArm_high`` commands and what ``get_sdkzero_to_body_offset`` ingests.
+        Returns ``None`` when the backing robot (e.g. the fake SDKK robot) does
+        not expose ``getHandRelative``.
+        """
+        self._require_prepared()
+        getter = getattr(self._robot, "getHandRelative", None)
+        if getter is None:
+            return None
+        arm_action = self._sdk.ArmAction
+        arm_enum = (
+            arm_action.LEFT_ARM
+            if str(arm).lower().startswith("l")
+            else arm_action.RIGHT_ARM
+        )
+        ok, arm_state = getter(arm_enum)
+        if not ok or arm_state is None:
+            return None
+        pos = getattr(arm_state, "position", None)
+        quat = getattr(arm_state, "rotation", None)
+        if pos is None or quat is None:
+            return None
+        from scipy.spatial.transform import Rotation as _R
+
+        pose = np.eye(4, dtype=np.float64)
+        pose[:3, :3] = _R.from_quat(quat).as_matrix()
+        pose[:3, 3] = np.asarray(pos, dtype=np.float64)
+        return pose
+
     # -- commanding ---------------------------------------------------------------
 
     def _resolve_control_type(self):

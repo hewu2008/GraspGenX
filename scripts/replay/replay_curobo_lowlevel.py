@@ -268,12 +268,13 @@ def _return_to_initial_pose(low, initial_17, *, duration: float = 2.0) -> None:
 def _ready_pose_base(arm: str) -> np.ndarray | None:
     """Map the SDK ready pose into the planning tool frame in the base frame.
 
-    ``B_T_E = inv(S_T_B) @ S_T_ready @ U_T_E``: ``S_T_ready`` is the SDK ready
-    pose (the wrist pose in the arm motor-zero frame that ``setArm_high``
-    targets); the pre-calibrated ``S_T_B`` (end2end_pipeline.ik_feasibility)
-    maps the SDK frame into the URDF ``body_yaw_link`` frame, and ``U_T_E``
-    adds the fixed wrist->EEF offset used by the planning URDF.  Returns None
-    when ``S_T_B`` is not calibrated.
+    ``B_T_E = inv(S_T_B) @ S_T_ready``: ``S_T_ready`` is the SDK ready pose —
+    the end-effector pose in the arm motor-zero frame that ``setArm_high``
+    targets and ``getHandRelative`` reports (verified: the SDK arm-end frame
+    already includes the wrist->EEF offset, so no ``U_T_E`` is applied).  The
+    pre-calibrated ``S_T_B`` (end2end_pipeline.ik_feasibility) maps the SDK
+    frame into the URDF ``body_yaw_link`` frame.  Returns None when ``S_T_B``
+    is not calibrated.
     """
     from end2end_pipeline.ik_feasibility import get_sdkzero_to_body_offset
 
@@ -287,7 +288,7 @@ def _ready_pose_base(arm: str) -> np.ndarray | None:
     s_ready = np.eye(4, dtype=np.float64)
     s_ready[:3, 3] = _READY_XYZ
     s_ready[:3, :3] = R.from_quat(_READY_QUAT).as_matrix()
-    return invert_transform(s_t_b) @ s_ready @ WRIST_T_END_EFFECTOR
+    return invert_transform(s_t_b) @ s_ready
 
 
 def _solve_arm_ik(arm: str, start_17, b_t_e_target: np.ndarray) -> np.ndarray | None:
@@ -366,39 +367,58 @@ def move_arms_to_ready_pose(low) -> None:
     :func:`retract_to_ready`.  Arms without a calibrated ``S_T_B`` (or with an
     unreachable ready pose) are skipped with a warning.
     """
+    arm_cols = {
+        a: np.asarray(
+            [ZERITH_ACTIVE_JOINTS.index(n) for n in ZERITH_ARM_JOINTS[a]],
+            dtype=np.int64,
+        )
+        for a in ("left", "right")
+    }
+
+    def _log_eef(label: str) -> None:
+        for a in ("left", "right"):
+            s_t_e = low.read_sdk_arm_eef(a)
+            if s_t_e is None:
+                logger.info(f"[Ready] {label} | {a}: (SDK pose unavailable)")
+                continue
+            logger.info(
+                f"[Ready] {label} | {a}: pos={np.round(s_t_e[:3, 3], 4).tolist()} "
+                f"rpy_deg={np.round(np.degrees(R.from_matrix(s_t_e[:3, :3]).as_euler('xyz')), 2).tolist()}"
+            )
+
     for arm in ("left", "right"):
         import pdb; pdb.set_trace()
+        _log_eef("before move")
         b_t_e = _ready_pose_base(arm)
         if b_t_e is None:
             continue
         current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
-        if arm == "right":
-            # TEST override (revert me): use the real robot's ready-pose joint
-            # feedback from assets/zerith/csv/arm_move_right_20260907_093956.csv
-            # (last row) instead of the cuRobo IK solution, to check how the
-            # model chain maps the real motor values.
-            import csv
+        # Use the real robot's verified ready-pose joint feedback from the
+        # asset CSVs (left/right each recorded at the 09:39 run) instead of the
+        # cuRobo IK solution.  cuRobo IK for the SDK ready pose fails because
+        # the URDF model deviates from the real robot once the arm is bent
+        # (measured 34.7 mm / 9 deg at the ready pose), so the model's only
+        # reachable branch is an over-folded config that does not match the
+        # physical ready pose.  The CSV values ARE the physical ready config.
+        import csv
 
-            csv_path = REPO_ROOT / "assets/zerith/csv/arm_move_right_20260907_093956.csv"
-            with csv_path.open(encoding="utf-8") as fh:
-                rows = list(csv.DictReader(fh))
-            last = rows[-1]
-            target_7 = np.asarray(
-                [float(last[f"joint_{i}_pos"]) for i in range(1, 8)],
-                dtype=np.float64,
-            )
-        else:
-            target_7 = _solve_arm_ik(arm, current, b_t_e)
+        side = "left" if arm == "left" else "right"
+        csv_path = REPO_ROOT / f"assets/zerith/csv/arm_move_{side}_20260907_093956.csv"
+        with csv_path.open(encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        last = rows[-1]
+        target_7 = np.asarray(
+            [float(last[f"joint_{i}_pos"]) for i in range(1, 8)],
+            dtype=np.float64,
+        )
         if target_7 is None:
             continue
-        cols = np.asarray(
-            [ZERITH_ACTIVE_JOINTS.index(name) for name in ZERITH_ARM_JOINTS[arm]],
-            dtype=np.int64,
-        )
+        cols = arm_cols[arm]
         target_17 = current.copy()
         target_17[cols] = target_7
         logger.info(f"[Ready] {arm} ready joints: {target_7.tolist()}")
         retract_to_ready(low, current, target_17, cols, duration=10.0)
+        _log_eef("after move")
 
 
 # URDF origins of the base-chain joints (assets/zerith/curobo/zerith_planning.urdf),
