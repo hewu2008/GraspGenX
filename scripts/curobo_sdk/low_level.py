@@ -162,8 +162,16 @@ class LowLevelRobot:
                 "calibration together (or use create_low_level_robot)"
             )
 
+    def _expected_mode_enum(self):
+        """SDK ``MotorControlMode`` enum instance for switchControlMode.
+
+        The pybind11 binding rejects plain ints and requires the actual enum
+        member, so this must NOT be converted with ``int()`` before switching.
+        """
+        return self._sdk.MotorControlMode.LOW_LEVEL
+
     def _expected_mode(self) -> int:
-        return int(self._sdk.MotorControlMode.LOW_LEVEL)
+        return int(self._expected_mode_enum())
 
     def _expected_init_state(self) -> int:
         init_state = getattr(self._sdk, "InitState", None)
@@ -221,7 +229,7 @@ class LowLevelRobot:
     def switch_low_level(self) -> None:
         self._require_prepared()
         try:
-            ok = bool(self._robot.switchControlMode(self._expected_mode()))
+            ok = bool(self._robot.switchControlMode(self._expected_mode_enum()))
         except Exception as exc:
             raise ControlModeError(f"switchControlMode(LOW_LEVEL) failed: {exc}") from exc
         if not ok:

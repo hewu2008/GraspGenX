@@ -100,6 +100,7 @@ def prepare_robot_posture(
     ``waist_pose_to_joint_position`` and commands all 17 joints via
     ``command_posture`` (a low-level tick cannot move the waist alone).
     """
+    import pdb; pdb.set_trace()
     steps = max(1, int(duration * rate))
     dt = 1.0 / rate
 

@@ -370,28 +370,28 @@ def run_curobo_lowlevel_replay(
             logger.warning("[Replay] Empty grasp plan; nothing to execute.")
             return 0
 
-        for r in range(max(1, int(rounds))):
-            logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
-            for gripper, label, _gidx, grasp4x4_world in plan:
-                if gripper not in _GRIPPER_TO_ARM:
-                    logger.warning(
-                        f"[Replay] Unknown gripper '{gripper}'; skipping."
-                    )
-                    continue
-                arm = _GRIPPER_TO_ARM[gripper]
-                cols = tuple(
-                    ZERITH_ACTIVE_JOINTS.index(name) for name in ZERITH_ARM_JOINTS[arm]
-                )
-                grasp_cycle(
-                    low,
-                    arm,
-                    grasp4x4_world,
-                    label,
-                    world_T_base=world_T_base,
-                    grasp_T_wrist=grasp_T_wrist,
-                    initial_snapshot=initial_snapshot,
-                    cols=cols,
-                )
+        # for r in range(max(1, int(rounds))):
+        #     logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
+        #     for gripper, label, _gidx, grasp4x4_world in plan:
+        #         if gripper not in _GRIPPER_TO_ARM:
+        #             logger.warning(
+        #                 f"[Replay] Unknown gripper '{gripper}'; skipping."
+        #             )
+        #             continue
+        #         arm = _GRIPPER_TO_ARM[gripper]
+        #         cols = tuple(
+        #             ZERITH_ACTIVE_JOINTS.index(name) for name in ZERITH_ARM_JOINTS[arm]
+        #         )
+        #         grasp_cycle(
+        #             low,
+        #             arm,
+        #             grasp4x4_world,
+        #             label,
+        #             world_T_base=world_T_base,
+        #             grasp_T_wrist=grasp_T_wrist,
+        #             initial_snapshot=initial_snapshot,
+        #             cols=cols,
+        #         )
         logger.info("[Replay] All rounds complete.")
         return 0
     finally:
