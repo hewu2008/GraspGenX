@@ -160,30 +160,19 @@ def _return_arm_to_initial(low, initial_17, cols) -> None:
     retract_to_ready(low, current, np.asarray(initial_17, dtype=np.float64), cols)
 
 
-def _return_to_initial_pose(low, initial_17, *, duration: float = 2.0) -> None:
-    """Restore waist Z/pitch + both arms to the initial observation posture.
+def _return_to_initial_pose(low) -> None:
+    """Restore waist Z/pitch + both arms to the ready observation posture.
 
-    LOW_LEVEL analog of ``replay_sdk_highlevel._return_to_initial_pose``: the
-    waist is driven back with ``prepare_robot_posture`` and both arms are ramped
-    in joint space to their ``initial_17`` snapshot values via
-    :func:`retract_to_ready`, so the full 17-axis vector returns to the initial
-    observation posture.
+    LOW_LEVEL analog of ``replay_sdk_highlevel._return_to_initial_pose`` (which
+    also needs no snapshot): the waist is driven back with
+    ``prepare_robot_posture`` and both arms are moved to the ready pose via
+    pinocchio IK (:func:`_move_arms_to_ready`), so the full robot returns to the
+    initial observation posture.
     """
     from curobo_sdk.api import prepare_robot_posture
 
     prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
-    current = np.asarray(low.read_feedback().model_position, dtype=np.float64)
-    arm_cols = tuple(
-        ZERITH_ACTIVE_JOINTS.index(name)
-        for name in (ZERITH_ARM_JOINTS["left"] + ZERITH_ARM_JOINTS["right"])
-    )
-    retract_to_ready(
-        low,
-        current,
-        np.asarray(initial_17, dtype=np.float64),
-        arm_cols,
-        duration=duration,
-    )
+    _move_arms_to_ready(low)
 
 
 # ---------------------------------------------------------------------------
@@ -192,26 +181,38 @@ def _return_to_initial_pose(low, initial_17, *, duration: float = 2.0) -> None:
 def _move_arms_to_ready(low) -> None:
     """Move both arms to the ready pose via pinocchio IK.
 
-    The ready pose is mapped into the URDF ``body_yaw_link`` frame via the
-    calibrated ``S_T_B`` and solved with :func:`_solve_arm_ik`; an arm without a
-    calibration (or an IK failure) is skipped with a warning.
+    For each arm the SDK ready pose is mapped into the URDF ``body_yaw_link``
+    frame via the live ``S_T_B`` calibration and solved with :func:`_solve_arm_ik`.
+    The left arm goes to ``[x, y, z]`` and the right mirrors the Y component
+    ``[x, -y, z]`` (arms are physically mirrored about the body XZ plane).  An arm
+    without a calibration (or an IK failure) is skipped with a warning.
     """
-    from replay.replay_curobo_lowlevel import _ready_pose_base
+    from scipy.spatial.transform import Rotation as R
+    from curobo_planning.frames import invert_transform
+    from pinocchio_ik.ik import get_s_t_b
+
+    ready_xyz = [-0.1, 0.0, 0.30]
+    ready_quat = [0.0, 0.0, 0.0, 1.0]  # identity
 
     for arm in ("left", "right"):
-        b_t_e = _ready_pose_base(low._robot, arm)
+        b_t_e = get_s_t_b(low._robot, arm)
         if b_t_e is None:
             logger.warning(
-                f"[Ready] No S_T_B calibration / ready target for {arm}; skipping."
+                f"[Ready] No S_T_B calibration for '{arm}'; skipping."
             )
             continue
+        y_sign = 1.0 if arm == "left" else -1.0
+        s_ready = np.eye(4, dtype=np.float64)
+        s_ready[:3, 3] = [ready_xyz[0], ready_xyz[1] * y_sign, ready_xyz[2]]
+        s_ready[:3, :3] = R.from_quat(ready_quat).as_matrix()
+        b_t_e = invert_transform(b_t_e) @ s_ready
+
         q_7 = _solve_arm_ik(arm, b_t_e)
         if q_7 is None:
             logger.error(f"[Ready] pinocchio IK failed for {arm}; skipping.")
             continue
         logger.info(f"[Ready] pinocchio IK {arm}: {np.round(q_7, 4).tolist()}")
-        import pdb; pdb.set_trace()
-        _ramp_to_joints(low, arm, q_7, duration=10.0)
+        _ramp_to_joints(low, arm, q_7, duration=3.0)
 
 
 def run_pinocchio_lowlevel_replay(
@@ -223,52 +224,51 @@ def run_pinocchio_lowlevel_replay(
     fake=False,
 ) -> int:
     """Replay the grasp plan with pinocchio IK + LOW_LEVEL SDK execution."""
-    from curobo_sdk.api import create_low_level_robot, prepare_robot_posture
+    from curobo_sdk.api import create_low_level_robot
     from replay.replay_common import collect_grasp_plan
 
     low = create_low_level_robot(fake=fake)
     low.ensure_connected_low_level(connect=True, init=True)
     try:
-        prepare_robot_posture(low, 0.0, 0.0, _WAIST_NORMAL_Z, _WAIST_PITCH)
-        _move_arms_to_ready(low)
+        _return_to_initial_pose(low)
 
-        initial_snapshot = np.asarray(
-            low.read_feedback().model_position, dtype=np.float64
-        )
-        world_T_base = build_world_T_base(read_imu_wxyz(low), initial_snapshot)
-        grasp_T_wrist = build_grasp_T_wrist()
+        # initial_snapshot = np.asarray(
+        #     low.read_feedback().model_position, dtype=np.float64
+        # )
+        # world_T_base = build_world_T_base(read_imu_wxyz(low), initial_snapshot)
+        # grasp_T_wrist = build_grasp_T_wrist()
 
-        plan = collect_grasp_plan(scene_dir, grasps_dir=grasps_dir, top_grasps=top_grasps)
-        if not plan:
-            logger.warning("[Replay] Empty grasp plan; nothing to execute.")
-            return 0
+        # plan = collect_grasp_plan(scene_dir, grasps_dir=grasps_dir, top_grasps=top_grasps)
+        # if not plan:
+        #     logger.warning("[Replay] Empty grasp plan; nothing to execute.")
+        #     return 0
 
-        arm_cols = {
-            a: tuple(
-                ZERITH_ACTIVE_JOINTS.index(n) for n in ZERITH_ARM_JOINTS[a]
-            )
-            for a in ("left", "right")
-        }
+        # arm_cols = {
+        #     a: tuple(
+        #         ZERITH_ACTIVE_JOINTS.index(n) for n in ZERITH_ARM_JOINTS[a]
+        #     )
+        #     for a in ("left", "right")
+        # }
 
-        for r in range(max(1, int(rounds))):
-            logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
-            for gripper, label, _gidx, grasp4x4_world in plan:
-                if gripper not in _GRIPPER_TO_ARM:
-                    logger.warning(
-                        f"[Replay] Unknown gripper '{gripper}'; skipping."
-                    )
-                    continue
-                arm = _GRIPPER_TO_ARM[gripper]
-                grasp_cycle(
-                    low,
-                    arm,
-                    grasp4x4_world,
-                    label,
-                    world_T_base=world_T_base,
-                    grasp_T_wrist=grasp_T_wrist,
-                    initial_snapshot=initial_snapshot,
-                    cols=arm_cols[arm],
-                )
+        # for r in range(max(1, int(rounds))):
+        #     logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
+        #     for gripper, label, _gidx, grasp4x4_world in plan:
+        #         if gripper not in _GRIPPER_TO_ARM:
+        #             logger.warning(
+        #                 f"[Replay] Unknown gripper '{gripper}'; skipping."
+        #             )
+        #             continue
+        #         arm = _GRIPPER_TO_ARM[gripper]
+        #         grasp_cycle(
+        #             low,
+        #             arm,
+        #             grasp4x4_world,
+        #             label,
+        #             world_T_base=world_T_base,
+        #             grasp_T_wrist=grasp_T_wrist,
+        #             initial_snapshot=initial_snapshot,
+        #             cols=arm_cols[arm],
+        #         )
         logger.info("[Replay] All rounds complete.")
         return 0
     finally:
