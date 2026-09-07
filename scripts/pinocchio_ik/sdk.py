@@ -9,7 +9,7 @@ the ``S_T_B`` calibration consumes.
 Intentionally minimal: no 500 Hz executor thread, no interpolation, no soft-limit
 validation (the caller's job).  Keeps ``pinocchio_ik`` free of a ``curobo_sdk`` /
 ``end2end_pipeline`` dependency; the real SDK is imported lazily so this module
-imports without a zerith env and can be exercised through an injected stub.
+imports without a zerith env and can be driven through an injected stub.
 """
 
 from __future__ import annotations
@@ -330,116 +330,18 @@ class ZerithLowLevel:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
-def create_low_level_robot(*, fake: bool = False, robot=None, sdk_module=None) -> "ZerithLowLevel":
-    """Build a :class:`ZerithLowLevel` bound to the real SDK (or a fake).
+def create_low_level_robot(*, robot=None, sdk_module=None) -> "ZerithLowLevel":
+    """Build a :class:`ZerithLowLevel` bound to the real SDK.
 
     Args:
-        fake: When True, bind a lightweight :class:`_FakeRobot` so the driver is
-            usable offline; ``robot``/``sdk_module`` are ignored.
-        robot: An already-created SDK ``H1Robot`` instance.  When None (and not
-            fake), a fresh ``H1Robot`` is instantiated.
-        sdk_module: The SDK module exposing enums / ``Motor_Control``.  When None
-            (and not fake), ``lib_h1_sdk_python`` is imported lazily.
+        robot: An already-created SDK ``H1Robot`` instance.  When None, a fresh
+            ``H1Robot`` is instantiated.
+        sdk_module: The SDK module exposing enums / ``Motor_Control``.  When None,
+            ``lib_h1_sdk_python`` is imported lazily.
     """
-    if fake:
-        sdk_module, robot = _make_fake()
-    else:
-        if sdk_module is None:
-            import importlib
-            sdk_module = importlib.import_module("lib_h1_sdk_python")
-        if robot is None:
-            robot = sdk_module.H1Robot()
+    if sdk_module is None:
+        import importlib
+        sdk_module = importlib.import_module("lib_h1_sdk_python")
+    if robot is None:
+        robot = sdk_module.H1Robot()
     return ZerithLowLevel(robot, sdk_module)
-
-
-# ---------------------------------------------------------------------------
-# Minimal offline stub (fake robot)
-# ---------------------------------------------------------------------------
-class _MotorState:
-    def __init__(self):
-        self.Position_Actual = 0.0
-        self.Speed_Actual = 0.0
-        self.Torque_Actual = 0.0
-        self.Error_flag = 0
-
-
-class _FakeRobot:
-    """Tiny offline robot satisfying the :class:`ZerithLowLevel` surface."""
-
-    def __init__(self):
-        self._connected = False
-        self._mode = 1  # LOW_LEVEL
-        self._init_state = 2
-        self._states: dict[int, _MotorState] = {}
-
-    def robot_connect(self):
-        self._connected = True
-        return True
-
-    def isRobotConnected(self):
-        return self._connected
-
-    def switchControlMode(self, mode):
-        self._mode = int(mode)
-        return True
-
-    def getCurrentMode(self):
-        return self._mode
-
-    def robot_init(self):
-        self._init_state = 2
-        return True
-
-    def getInitState(self):
-        return self._init_state
-
-    def robot_deinit(self):
-        self._connected = False
-        return True
-
-    def getMotorState(self, motor_id):
-        mid = int(motor_id)
-        s = self._states.get(mid)
-        if s is None:
-            s = self._states[mid] = _MotorState()
-        return True, s
-
-    def setWaist_low(self, motor_id, control):
-        return True
-
-    def setArm_low(self, motor_id, control):
-        return True
-
-    def setGripper_low(self, gripper_id, control, is_hold_torque=True):
-        return True
-
-    def getHandRelative(self, arm_enum):
-        return True, None  # fake: no EEF read
-
-
-# Real EtherCAT motor IDs (see EtherCAT_Motor_Index): waist 2-4, left arm 7-13,
-# right arm 15-21.  The fake uses the same IDs so waist routing is exercised.
-_MOTOR_ID_MAP = {
-    "MOTOR_LIFT": 2,
-    "MOTOR_WAIST_DOWN": 3,
-    "MOTOR_WAIST_UP": 4,
-    **{f"MOTOR_LEFT_ARM_{i}": 7 + i - 1 for i in range(1, 8)},
-    **{f"MOTOR_RIGHT_ARM_{i}": 15 + i - 1 for i in range(1, 8)},
-}
-
-
-def _make_fake():
-    import types
-
-    mod = types.ModuleType("_fake_zerith_sdk")
-
-    Motor_Index = type("EtherCAT_Motor_Index", (), dict(_MOTOR_ID_MAP))
-    mod.EtherCAT_Motor_Index = Motor_Index
-    mod.MotorControlMode = type(
-        "MotorControlMode", (), {"LOW_LEVEL": 1, "HIGH_LEVEL": 2}
-    )
-    mod.InitState = type("InitState", (), {"Init_Complete": 2})
-    mod.ArmAction = type("ArmAction", (), {"LEFT_ARM": 0, "RIGHT_ARM": 1})
-    mod.Motor_Control = type("Motor_Control", (), {})
-    mod.H1Robot = _FakeRobot
-    return mod, _FakeRobot()
