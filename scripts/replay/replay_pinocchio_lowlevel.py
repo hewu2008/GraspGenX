@@ -290,26 +290,25 @@ def run_pinocchio_lowlevel_replay(
             for a in ("left", "right")
         }
 
-        # for r in range(max(1, int(rounds))):
-        #     logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
-        #     _return_to_initial_pose(low, initial_snapshot)
-        #     for gripper, label, _gidx, grasp4x4_world in plan:
-        #         if gripper not in _GRIPPER_TO_ARM:
-        #             logger.warning(
-        #                 f"[Replay] Unknown gripper '{gripper}'; skipping."
-        #             )
-        #             continue
-        #         arm = _GRIPPER_TO_ARM[gripper]
-        #         grasp_cycle(
-        #             low,
-        #             arm,
-        #             grasp4x4_world,
-        #             label,
-        #             world_T_base=world_T_base,
-        #             grasp_T_wrist=grasp_T_wrist,
-        #             initial_snapshot=initial_snapshot,
-        #             cols=arm_cols[arm],
-        #         )
+        for r in range(max(1, int(rounds))):
+            logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
+            for gripper, label, _gidx, grasp4x4_world in plan:
+                if gripper not in _GRIPPER_TO_ARM:
+                    logger.warning(
+                        f"[Replay] Unknown gripper '{gripper}'; skipping."
+                    )
+                    continue
+                arm = _GRIPPER_TO_ARM[gripper]
+                grasp_cycle(
+                    low,
+                    arm,
+                    grasp4x4_world,
+                    label,
+                    world_T_base=world_T_base,
+                    grasp_T_wrist=grasp_T_wrist,
+                    initial_snapshot=initial_snapshot,
+                    cols=arm_cols[arm],
+                )
         logger.info("[Replay] All rounds complete.")
         return 0
     finally:
