@@ -31,6 +31,8 @@ from pinocchio_ik.ik import _solve_arm_ik
 from pinocchio_ik.sdk import ZerithLowLevel
 from pinocchio_ik.sdk import ACTIVE_JOINTS, ARM_JOINTS, create_low_level_robot
 
+from .replay_sdk_highlevel import world_grasp_to_hand_cam, resolve_grasp_target_hand
+
 from replay.replay_curobo_lowlevel import (
     _GRIPPER_TO_ARM,
     _WAIST_NORMAL_Z,
@@ -274,41 +276,53 @@ def run_pinocchio_lowlevel_replay(
     try:
         _return_to_initial_pose(driver)
 
-        # initial_snapshot = np.asarray(
-        #     driver.read_feedback().model_position, dtype=np.float64
-        # )
-        # world_T_base = build_world_T_base(read_imu_wxyz(driver), initial_snapshot)
-        # grasp_T_wrist = build_grasp_T_wrist()
+        initial_snapshot = np.asarray(
+            driver.read_feedback().model_position, dtype=np.float64
+        )
+        logger.info(f"[Replay] initial_snapshot: {initial_snapshot}")
 
-        # plan = collect_grasp_plan(scene_dir, grasps_dir=grasps_dir, top_grasps=top_grasps)
-        # if not plan:
-        #     logger.warning("[Replay] Empty grasp plan; nothing to execute.")
-        #     return 0
+        arm_cols = {
+            a: tuple(ACTIVE_JOINTS.index(n) for n in ARM_JOINTS[a])
+            for a in ("left", "right")
+        }
 
-        # arm_cols = {
-        #     a: tuple(ACTIVE_JOINTS.index(n) for n in ARM_JOINTS[a])
-        #     for a in ("left", "right")
-        # }
+        plan = collect_grasp_plan(scene_dir, grasps_dir=grasps_dir, top_grasps=top_grasps)
+        if not plan:
+            logger.warning("[Replay] Empty grasp plan; nothing to execute.")
+            return 0
 
-        # for r in range(max(1, int(rounds))):
-        #     logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
-        #     for gripper, label, _gidx, grasp4x4_world in plan:
-        #         if gripper not in _GRIPPER_TO_ARM:
-        #             logger.warning(
-        #                 f"[Replay] Unknown gripper '{gripper}'; skipping."
-        #             )
-        #             continue
-        #         arm = _GRIPPER_TO_ARM[gripper]
-        #         grasp_cycle(
-        #             driver,
-        #             arm,
-        #             grasp4x4_world,
-        #             label,
-        #             world_T_base=world_T_base,
-        #             grasp_T_wrist=grasp_T_wrist,
-        #             initial_snapshot=initial_snapshot,
-        #             cols=arm_cols[arm],
-        #         )
+        for r in range(max(1, int(rounds))):
+            logger.info(f"[Replay] ======== round {r + 1}/{max(1, int(rounds))} ========")
+            for gripper, label, _gidx, grasp4x4_world in plan:
+                if gripper not in _GRIPPER_TO_ARM:
+                    logger.warning(
+                        f"[Replay] Unknown gripper '{gripper}'; skipping."
+                    )
+                    continue
+                arm = _GRIPPER_TO_ARM[gripper]
+                logger.info(f"[Replay] arm: {arm}, label: {label}, grasp4x4_world: {grasp4x4_world}")
+
+                T_obj_cam = world_grasp_to_hand_cam(driver._robot, arm, grasp4x4_world)
+                if T_obj_cam is None:
+                    continue
+                logger.info(f"[Replay] T_obj_cam: {T_obj_cam}")
+
+                target_pos, target_quat = resolve_grasp_target_hand(driver._robot, T_obj_cam)
+                if target_pos is None:
+                    logger.error("[Replay] resolve_grasp_target_hand failed; skipping grasp.")
+                    continue
+                logger.info(f"[Replay] target_pos: {target_pos}, target_quat: {target_quat}")
+
+                # grasp_cycle(
+                #     driver,
+                #     arm,
+                #     grasp4x4_world,
+                #     label,
+                #     world_T_base=world_T_base,
+                #     grasp_T_wrist=grasp_T_wrist,
+                #     initial_snapshot=initial_snapshot,
+                #     cols=arm_cols[arm],
+                # )
         logger.info("[Replay] All rounds complete.")
         return 0
     finally:
