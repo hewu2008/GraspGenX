@@ -80,7 +80,7 @@ if __name__ == "__main__":
     if args.mode == "pinocchio_lowlevel":
         from replay.replay_pinocchio_lowlevel import run_pinocchio_lowlevel_replay
         raise SystemExit(
-            run_pinocchio_lowlevel_replay(args.scene_dir, fake=args.fake, **common)
+            run_pinocchio_lowlevel_replay(args.scene_dir, **common)
         )
     from replay.replay_sdk_highlevel import run_replay
     raise SystemExit(
