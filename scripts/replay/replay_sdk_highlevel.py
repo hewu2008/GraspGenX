@@ -180,10 +180,13 @@ def run_replay(
                 T_obj_cam = world_grasp_to_hand_cam(robot, arm, grasp4x4)
                 if T_obj_cam is None:
                     continue
+                logger.info(f"[Replay] T_obj_cam: {T_obj_cam}")
+
                 target_pos, target_quat = resolve_grasp_target_hand(robot, T_obj_cam)
                 if target_pos is None:
                     logger.error("[Replay] resolve_grasp_target_hand failed; skipping grasp.")
                     continue
+                logger.info(f"[Replay] target_pos: {target_pos}, target_quat: {target_quat}")
                 
                 import pdb; pdb.set_trace()
                 grasp_object(robot, target_pos, target_quat, arm=arm, gripper_motor=motor)

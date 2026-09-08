@@ -37,42 +37,15 @@ from replay.replay_curobo_lowlevel import (
     _GRIPPER_TO_ARM,
     _WAIST_NORMAL_Z,
     _WAIST_PITCH,
-    _lift_tool_pose,
-    _place_tool_pose,
-    build_grasp_T_wrist,
-    build_world_T_base,
-    read_imu_wxyz,
     retract_to_ready,
 )
 
+from end2end_pipeline.robot_motion import compose_relative_pose, get_arm_relative_pose
+
+_WAIST_Z_JOINT = "daogui_joint"
+_WAIST_PITCH_JOINT = "body_pitch_joint"
+
 logger = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Pinocchio IK (the core of this backend)
-# ---------------------------------------------------------------------------
-def _tool_pose_from_world_grasp(
-    world_T_base: np.ndarray,
-    world_grasp: np.ndarray,
-    grasp_T_wrist: np.ndarray,
-    wrist_T_eff: np.ndarray = WRIST_T_END_EFFECTOR,
-) -> np.ndarray:
-    """``B_T_E = inv(W_T_B) @ W_T_G @ G_T_U @ U_T_E``."""
-    wb = np.asarray(world_T_base, dtype=np.float64)
-    wg = np.asarray(world_grasp, dtype=np.float64)
-    gu = np.asarray(grasp_T_wrist, dtype=np.float64)
-    ue = np.asarray(wrist_T_eff, dtype=np.float64)
-
-    inv_wb = np.eye(4)
-    inv_wb[:3, :3] = wb[:3, :3].T
-    inv_wb[:3, 3] = -wb[:3, :3].T @ wb[:3, 3]
-    out = inv_wb @ wg @ gu @ ue
-
-    logger.debug(
-        "[IK] world grasp -> B_T_E: pos=%s",
-        np.round(out[:3, 3], 4).tolist(),
-    )
-    return out
 
 
 def _ramp_to_joints(driver, arm, target_7, duration: float = 3.0) -> None:
@@ -87,85 +60,20 @@ def _ramp_to_joints(driver, arm, target_7, duration: float = 3.0) -> None:
     retract_to_ready(driver, current, target_17, cols, duration=duration)
 
 
-# ---------------------------------------------------------------------------
-# Helper: FK achieved EEF pose from the recorded joint feedback
-# ---------------------------------------------------------------------------
-def _fk_tool_pose(arm, q_7):
-    """Return ``B_T_E`` (4x4) for the given 7 arm joint angles via pinocchio FK.
-
-    Reuses ``ik_feasibility._fk_eef_pose`` (same reduced model), so the achieved
-    pose matches the model that the IK solved against.
-    """
-    from pinocchio_ik.ik import _fk_eef_pose
-
-    return _fk_eef_pose(arm, np.asarray(q_7, dtype=np.float64))
-
-
-# ---------------------------------------------------------------------------
-# Grasp cycle (pinocchio IK variant)
-# ---------------------------------------------------------------------------
-def _exec_moved_to_pose(driver, arm, b_t_e_target, duration=3.0) -> np.ndarray | None:
-    """Solve + execute the arm to ``b_t_e_target``; return the achieved B_T_E."""
-    q_7 = _solve_arm_ik(arm, b_t_e_target)
-    if q_7 is None:
-        return None
-    _ramp_to_joints(driver, arm, q_7, duration=duration)
-    current = np.asarray(driver.read_feedback().model_position, dtype=np.float64)
-    cur_7 = np.asarray(
-        [current[ACTIVE_JOINTS.index(n)] for n in ARM_JOINTS[arm]],
-        dtype=np.float64,
-    )
-    return _fk_tool_pose(arm, cur_7)
-
-
 def grasp_cycle(
-    driver, arm, grasp4x4_world, label, *, world_T_base, grasp_T_wrist, initial_snapshot, cols
+    driver, arm, target_pos, target_quat, label, initial_snapshot, cols
 ) -> None:
     """Full pinocchio-IK grasp cycle for one world grasp pose."""
     logger.info(
-        f"[Cycle][{arm}] {label}: pos={np.asarray(grasp4x4_world)[:3, 3].tolist()}"
+        f"[Cycle][{arm}] {label}: pos={target_pos.tolist()}, quat={target_quat.tolist()}"
     )
 
-    # 1. Approach: solve + move EEF to the grasp pose.
-    B_T_E_grasp = _exec_moved_to_pose(
-        driver, arm, _tool_pose_from_world_grasp(world_T_base, grasp4x4_world, grasp_T_wrist)
+    target_arm = driver._sdk.ArmAction.LEFT_ARM if arm == "left" else driver._sdk.ArmAction.RIGHT_ARM
+    arm_pos_rel, arm_quat_rel = get_arm_relative_pose(driver, target_arm)
+    target_abs, target_abs_quat = compose_relative_pose(
+        arm_pos_rel, arm_quat_rel, target_pos, target_quat
     )
-    if B_T_E_grasp is None:
-        logger.error(f"[Cycle][{arm}] approach IK failed; aborting cycle.")
-        return
-    logger.info("[Cycle] Grasp reached; closing gripper")
-    driver.set_gripper_close(arm)
-    time.sleep(2.0)
-
-    # 2. Lift.
-    lift_b_t_e = _lift_tool_pose(B_T_E_grasp)
-    logger.info("[Cycle] Lifting grasped object")
-    _exec_moved_to_pose(driver, arm, lift_b_t_e, duration=3.0)
-
-    # 3. Move to place.
-    place_b_t_e = _place_tool_pose(B_T_E_grasp, arm)
-    logger.info("[Cycle] Moving to place")
-    _exec_moved_to_pose(driver, arm, place_b_t_e, duration=3.0)
-
-    # 4. Release.
-    logger.info("[Cycle] Releasing gripper")
-    driver.set_gripper_open(arm)
-    time.sleep(2.0)
-
-    # 5. Retract to the ready configuration.
-    logger.info("[Cycle] Retracting to ready")
-    _return_arm_to_initial(driver, np.asarray(initial_snapshot, dtype=np.float64), cols)
-
-
-def _return_arm_to_initial(driver, initial_17, cols) -> None:
-    """Ramp one arm back to its initial observed joints (joint space)."""
-    current = np.asarray(driver.read_feedback().model_position, dtype=np.float64)
-    retract_to_ready(driver, current, np.asarray(initial_17, dtype=np.float64), cols)
-
-
-_WAIST_Z_JOINT = "daogui_joint"
-_WAIST_PITCH_JOINT = "body_pitch_joint"
-
+    _move_arm_to_ready(driver, arm, ready_xyz=target_abs, ready_quat=target_abs_quat)
 
 def _prepare_waist_posture(
     driver,
@@ -230,15 +138,10 @@ def _move_arm_to_ready(
     ready_xyz=(-0.1, 0.0, 0.30),
     ready_quat=(0.0, 0.0, 0.0, 1.0),
 ) -> None:
-    """Move ``arm``'s EEF to the ready pose via pinocchio IK.
+    return _move_arm_to_pose(driver, arm, ready_xyz, ready_quat, duration=3.0)
 
-    The SDK ready pose is mapped into the URDF ``body_yaw_link`` frame via the
-    live ``S_T_B`` calibration and solved with :func:`_solve_arm_ik`.  The arm's
-    EEF goes to ``ready_xyz`` (the right arm mirrors the Y component
-    ``[x, -y, z]``, as the arms are physically mirrored about the body XZ plane)
-    with orientation ``ready_quat`` (wxyz).  An arm without a calibration (or an
-    IK failure) is skipped with a warning.
-    """
+def _move_arm_to_pose(driver, arm, target_pos, target_quat, duration=3.0):
+    """Move ``arm``'s EEF to the target pose via pinocchio IK."""
     from scipy.spatial.transform import Rotation as R
     from curobo_planning.frames import invert_transform
     from pinocchio_ik.ik import get_s_t_b
@@ -246,20 +149,20 @@ def _move_arm_to_ready(
     b_t_e = get_s_t_b(driver._robot, arm)
     if b_t_e is None:
         logger.warning(
-            f"[Ready] No S_T_B calibration for '{arm}'; skipping."
+            f"[Move] No S_T_B calibration for '{arm}'; skipping."
         )
         return
     s_ready = np.eye(4, dtype=np.float64)
-    s_ready[:3, 3] = [ready_xyz[0], ready_xyz[1], ready_xyz[2]]
-    s_ready[:3, :3] = R.from_quat(ready_quat).as_matrix()
+    s_ready[:3, 3] = [target_pos[0], target_pos[1], target_pos[2]]
+    s_ready[:3, :3] = R.from_quat(target_quat).as_matrix()
     b_t_e = invert_transform(b_t_e) @ s_ready
 
     q_7 = _solve_arm_ik(arm, b_t_e)
     if q_7 is None:
         logger.error(f"[Ready] pinocchio IK failed for {arm}; skipping.")
         return
-    logger.info(f"[Ready] pinocchio IK {arm}: {np.round(q_7, 4).tolist()}")
-    _ramp_to_joints(driver, arm, q_7, duration=3.0)
+    logger.info(f"[Move] pinocchio IK {arm}: {np.round(q_7, 4).tolist()}")
+    _ramp_to_joints(driver, arm, q_7, duration=duration)
 
 
 def run_pinocchio_lowlevel_replay(
@@ -317,16 +220,15 @@ def run_pinocchio_lowlevel_replay(
                     continue
                 logger.info(f"[Replay] target_pos: {target_pos}, target_quat: {target_quat}")
 
-                # grasp_cycle(
-                #     driver,
-                #     arm,
-                #     grasp4x4_world,
-                #     label,
-                #     world_T_base=world_T_base,
-                #     grasp_T_wrist=grasp_T_wrist,
-                #     initial_snapshot=initial_snapshot,
-                #     cols=arm_cols[arm],
-                # )
+                grasp_cycle(
+                    driver,
+                    arm,
+                    target_pos,
+                    target_quat,
+                    label,
+                    initial_snapshot=initial_snapshot,
+                    cols=arm_cols[arm],
+                )
         logger.info("[Replay] All rounds complete.")
         return 0
     finally:
