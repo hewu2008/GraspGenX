@@ -26,7 +26,7 @@ sudo -E /home/robot/miniconda3/envs/zerith_graspgen/bin/python scripts/replay/re
     --scene-dir "$SCENE_DIR" \
     --mode "$MODE" \
     --no-move-chassis \
-    --rounds 10 \
+    --rounds 1 \
     --top-grasps 1 \
     "$@" \
     2>&1 | tee "$SCENE_DIR/replay.log"

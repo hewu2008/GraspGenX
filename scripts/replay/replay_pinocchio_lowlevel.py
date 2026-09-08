@@ -300,9 +300,13 @@ def run_pinocchio_lowlevel_replay(
                     )
                     continue
                 arm = _GRIPPER_TO_ARM[gripper]
-                logger.info(f"[Replay] arm: {arm}, label: {label}, grasp4x4_world: {grasp4x4_world}")
+                arm_action = driver._sdk.ArmAction
+                high_arm = arm_action.LEFT_ARM if arm == "left" else arm_action.RIGHT_ARM
+                logger.info(
+                    f"[Replay] arm: {arm}, label: {label}, grasp4x4_world: {grasp4x4_world}"
+                )
 
-                T_obj_cam = world_grasp_to_hand_cam(driver._robot, arm, grasp4x4_world)
+                T_obj_cam = world_grasp_to_hand_cam(driver._robot, high_arm, grasp4x4_world)
                 if T_obj_cam is None:
                     continue
                 logger.info(f"[Replay] T_obj_cam: {T_obj_cam}")
